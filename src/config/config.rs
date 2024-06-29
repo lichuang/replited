@@ -1,3 +1,4 @@
+use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -5,12 +6,15 @@ use std::fs;
 
 use serde::Deserialize;
 
+use super::StorageParams;
 use crate::error::Error;
 use crate::error::Result;
 
 #[derive(Clone, PartialEq, Eq, Deserialize)]
 pub struct Config {
     pub log: LogConfig,
+
+    pub database: Vec<DatabaseConfig>,
 }
 
 impl Config {
@@ -92,5 +96,35 @@ impl Display for LogConfig {
             "level={:?}, dir={}, to_stderr={}",
             self.level, self.dir, self.to_stderr
         )
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+pub struct DatabaseConfig {
+    pub path: String,
+    pub replicate: Vec<StorageConfig>,
+}
+
+impl Debug for DatabaseConfig {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.debug_struct("DatabaseConfig")
+            .field("path", &self.path)
+            .field("storage", &self.replicate)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+pub struct StorageConfig {
+    pub allow_insecure: bool,
+    pub params: StorageParams,
+}
+
+impl Debug for StorageConfig {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        f.debug_struct("StorageS3Config")
+            .field("allow_insecure", &self.allow_insecure)
+            .field("params", &self.params)
+            .finish()
     }
 }

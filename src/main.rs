@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 #![allow(incomplete_features)]
 
+mod base;
 mod cmd;
 mod config;
 mod database;
@@ -9,15 +10,23 @@ mod log;
 
 use clap::Parser;
 use config::Arg;
+use config::Config;
 use log::init_log;
+
+use crate::cmd::command;
+use crate::cmd::Command;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let arg = Arg::parse();
-    let log_config = arg.log_config()?;
-
-    println!("hello: {:?}", arg);
+    let config = Config::load(&arg.config)?;
+    let log_config = config.log.clone();
 
     init_log(log_config)?;
+
+    let cmd = command(arg, config)?;
+
+    cmd.run().await?;
+
     Ok(())
 }

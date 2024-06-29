@@ -21,7 +21,7 @@ pub fn init_log(log_config: LogConfig) -> Result<()> {
 
     let log_file = format!("{}/litesync_log", log_config.dir);
     let log_file_pattern = format!("{}/litesync_log_{{}}", log_config.dir);
-    let roller_count = 8;
+    let roller_count = 9;
     let roller_base = 1;
     let fixed_window_roller = FixedWindowRoller::builder()
         .base(roller_base)
