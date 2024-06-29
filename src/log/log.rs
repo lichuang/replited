@@ -1,5 +1,6 @@
 use log::LevelFilter;
 use log4rs;
+use log4rs::append::console::ConsoleAppender;
 use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
 use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
 use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
@@ -20,13 +21,13 @@ pub fn init_log(log_config: LogConfig) -> Result<()> {
 
     let log_file = format!("{}/litesync_log", log_config.dir);
     let log_file_pattern = format!("{}/litesync_log_{{}}", log_config.dir);
-    let roller_count = 9;
+    let roller_count = 8;
     let roller_base = 1;
     let fixed_window_roller = FixedWindowRoller::builder()
         .base(roller_base)
         .build(&log_file_pattern, roller_count)?;
 
-    let size_limit = 1024 * 1024;
+    let size_limit = 1024 * 4096;
     let size_trigger = SizeTrigger::new(size_limit);
 
     let compound_policy =
@@ -36,7 +37,7 @@ pub fn init_log(log_config: LogConfig) -> Result<()> {
         .encoder(Box::new(PatternEncoder::new(&log_line_pattern)))
         .build(&log_file, Box::new(compound_policy))?;
 
-    let config = Config::builder()
+    let bulder = Config::builder()
         .appender(
             Appender::builder()
                 .filter(Box::new(ThresholdFilter::new(level)))
@@ -46,8 +47,24 @@ pub fn init_log(log_config: LogConfig) -> Result<()> {
             Logger::builder()
                 .appender("logfile")
                 .build("logfile", level),
-        )
-        .build(Root::builder().appender("logfile").build(level))?;
+        );
+
+    let config = if log_config.to_stderr {
+        let stdout = ConsoleAppender::builder()
+            .encoder(Box::new(PatternEncoder::new(&log_line_pattern)))
+            .build();
+
+        bulder
+            .appender(Appender::builder().build("stdout", Box::new(stdout)))
+            .build(
+                Root::builder()
+                    .appender("logfile")
+                    .appender("stdout")
+                    .build(level),
+            )?
+    } else {
+        bulder.build(Root::builder().appender("logfile").build(level))?
+    };
 
     let _ = log4rs::init_config(config)?;
 
