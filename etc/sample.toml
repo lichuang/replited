@@ -1,0 +1,4 @@
+[log]
+level = "Debug"
+dir = "/var/log/litesync/"
+to_stderr = true

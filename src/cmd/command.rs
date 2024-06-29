@@ -1,13 +1,13 @@
 use super::Replicate;
+use crate::config::Arg;
 use crate::config::ArgCommand;
-use crate::config::Args;
 
 pub trait Command {
     async fn run(&self);
 }
 
-pub fn command(args: Args) -> Box<impl Command> {
-    match &args.command {
+pub fn command(arg: Arg) -> Box<impl Command> {
+    match &arg.command {
         ArgCommand::Replicate(option) => Replicate::try_create(option.clone()),
     }
 }

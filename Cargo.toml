@@ -6,13 +6,20 @@ description = ""
 
 [dependencies]
 anyhow = { version = "1.0.65" }
+chrono = { version = "0.4.31", features = ["serde"] }
 clap = { version = "4.4.2", features = ["derive"] }
-tokio = { version = "1.35.0", features = ["full"] }
 opendal = { version = "0.47.0", features = [
   "layers-minitrace",
   "layers-async-backtrace",
   "services-s3",
 ] }
+log = "0.4.17"
+log4rs = "1.2.0"
+paste = "1.0.9"
+serde = { version = "1.0.164", features = ["derive", "rc"] }
+thiserror = { version = "1" }
+toml = "0.8.14"
+tokio = { version = "1.35.0", features = ["full"] }
 
 [[bin]]
 name = "litesync"

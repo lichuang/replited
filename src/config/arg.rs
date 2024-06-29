@@ -1,11 +1,27 @@
 use clap::Parser;
 use clap::Subcommand;
 
+use super::config::Config;
+use super::config::LogConfig;
+use crate::error::Result;
+
 #[derive(Parser, Debug)]
 #[command(author="litesync", version, about="Sync sqlite database", long_about = None)]
-pub struct Args {
+pub struct Arg {
     #[command(subcommand)]
     pub command: ArgCommand,
+}
+
+impl Arg {
+    pub fn log_config(&self) -> Result<LogConfig> {
+        match &self.command {
+            ArgCommand::Replicate(replicate) => {
+                let config_file = &replicate.config;
+                let config = Config::load(config_file)?;
+                Ok(config.log.clone())
+            } //_ => Ok(LogConfig::default()),
+        }
+    }
 }
 
 #[derive(Subcommand, Clone, Debug)]
