@@ -1,0 +1,21 @@
+[package]
+name = "litesync"
+version = "0.1.0"
+edition = "2021"
+description = ""
+
+[dependencies]
+anyhow = { version = "1.0.65" }
+clap = { version = "4.4.2", features = ["derive"] }
+tokio = { version = "1.35.0", features = ["full"] }
+opendal = { version = "0.47.0", features = [
+  "layers-minitrace",
+  "layers-async-backtrace",
+  "services-s3",
+] }
+
+[[bin]]
+name = "litesync"
+path = "src/main.rs"
+doctest = false
+test = false
