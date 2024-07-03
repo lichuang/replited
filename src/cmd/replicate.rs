@@ -4,8 +4,6 @@ use super::command::Command;
 use crate::config::Config;
 use crate::database::Database;
 use crate::error::Result;
-use crate::runtime::GlobalIORuntime;
-use crate::runtime::TrySpawn;
 
 pub struct Replicate {
     pub databases: Vec<Arc<Database>>,
@@ -26,19 +24,16 @@ impl Command for Replicate {
     async fn run(&self) -> Result<()> {
         let mut handles = vec![];
         for database in &self.databases {
-            // database.run().await?;
             let datatase = database.clone();
-            let handle = GlobalIORuntime::instance().spawn(async move {
-                // println!("start database with config: {:?}\n", self.config);
-                // self.main()
-                datatase.as_ref().main()
+            let handle = tokio::spawn(async move {
+                let _ = datatase.as_ref().run().await;
             });
 
             handles.push(handle);
         }
 
         for h in handles {
-            h.await.expect("hello");
+            h.await.unwrap();
         }
         Ok(())
     }
