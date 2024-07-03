@@ -61,4 +61,13 @@ build_error! {
     StorageNotFound(51),
     StoragePermissionDenied(52),
     StorageOther(53),
+
+    // database error
+    SpawnDatabaseTaskError(80),
+
+    // tokio error
+    TokioError(100),
+
+    // other error
+    PanicError(120),
 }
