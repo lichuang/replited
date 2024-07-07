@@ -1,32 +1,32 @@
-use std::sync::Arc;
+use tokio::sync::broadcast;
+use tokio::sync::broadcast::Receiver;
+use tokio::sync::broadcast::Sender;
 
 use super::command::Command;
 use crate::config::Config;
-use crate::database::Database;
+use crate::database::run_database;
 use crate::error::Result;
 
 pub struct Replicate {
-    pub databases: Vec<Arc<Database>>,
+    config: Config,
 }
 
 impl Replicate {
     pub fn try_create(config: Config) -> Result<Box<Self>> {
-        let mut databases = vec![];
-        for db in &config.database {
-            let database = Database::try_create(db.clone())?;
-            databases.push(Arc::new(database));
-        }
-        Ok(Box::new(Replicate { databases }))
+        Ok(Box::new(Replicate { config }))
     }
 }
 
 impl Command for Replicate {
-    async fn run(&self) -> Result<()> {
+    async fn run(&mut self) -> Result<()> {
+        let (_tx, rx): (Sender<&str>, Receiver<&str>) = broadcast::channel(16);
+
         let mut handles = vec![];
-        for database in &self.databases {
+        for database in &self.config.database {
             let datatase = database.clone();
+            let rx = rx.resubscribe();
             let handle = tokio::spawn(async move {
-                let _ = datatase.as_ref().run().await;
+                let _ = run_database(datatase, rx).await;
             });
 
             handles.push(handle);

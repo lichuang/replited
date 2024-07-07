@@ -4,7 +4,7 @@ dir = "/var/log/litesync/"
 to_stderr = true
 
 [[database]]
-path = "provider"
+path = "/Users/codedump/local/sqlite/test.db"
 
 [[database.replicate]]
 allow_insecure = true

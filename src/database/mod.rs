@@ -1,3 +1,3 @@
 mod database;
 
-pub use database::Database;
+pub use database::run_database;

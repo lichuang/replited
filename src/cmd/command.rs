@@ -5,7 +5,7 @@ use crate::config::Config;
 use crate::error::Result;
 
 pub trait Command {
-    async fn run(&self) -> Result<()>;
+    async fn run(&mut self) -> Result<()>;
 }
 
 pub fn command(arg: Arg, config: Config) -> Result<Box<impl Command>> {

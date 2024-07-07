@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
 
     init_log(log_config)?;
 
-    let cmd = command(arg, config)?;
+    let mut cmd = command(arg, config)?;
 
     cmd.run().await?;
 

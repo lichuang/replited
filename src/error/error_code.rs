@@ -68,6 +68,9 @@ build_error! {
     // tokio error
     TokioError(100),
 
+    // sqlite error
+    SqliteError(120),
+
     // other error
-    PanicError(120),
+    PanicError(140),
 }
