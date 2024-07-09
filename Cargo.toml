@@ -24,6 +24,7 @@ state = "0.5"
 thiserror = { version = "1" }
 toml = "0.8.14"
 tokio = { version = "1.35.0", features = ["full"] }
+uuid = { version = "1.10.0", features = ["v7"] }
 
 [[bin]]
 name = "litesync"

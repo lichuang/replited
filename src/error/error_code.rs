@@ -70,6 +70,7 @@ build_error! {
 
     // sqlite error
     SqliteError(120),
+    SqliteWalError(121),
 
     // other error
     PanicError(140),
