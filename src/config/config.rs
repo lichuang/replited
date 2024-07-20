@@ -53,7 +53,6 @@ impl Config {
 pub struct LogConfig {
     pub level: LogLevel,
     pub dir: String,
-    pub to_stderr: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -84,18 +83,13 @@ impl Default for LogConfig {
         Self {
             level: LogLevel::Info,
             dir: "/var/log/litesync".to_string(),
-            to_stderr: false,
         }
     }
 }
 
 impl Display for LogConfig {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "level={:?}, dir={}, to_stderr={}",
-            self.level, self.dir, self.to_stderr
-        )
+        write!(f, "level={:?}, dir={}", self.level, self.dir)
     }
 }
 

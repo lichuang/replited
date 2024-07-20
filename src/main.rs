@@ -7,6 +7,7 @@ mod config;
 mod database;
 mod error;
 mod log;
+mod sqlite;
 
 use clap::Parser;
 use config::Arg;

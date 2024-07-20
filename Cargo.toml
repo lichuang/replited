@@ -9,10 +9,11 @@ anyhow = { version = "1.0.65" }
 chrono = { version = "0.4.31", features = ["serde"] }
 clap = { version = "4.4.2", features = ["derive"] }
 opendal = { version = "0.47.0", features = [
-  "layers-minitrace",
-  "layers-async-backtrace",
-  "services-s3",
+    "layers-minitrace",
+    "layers-async-backtrace",
+    "services-s3",
 ] }
+hex = "0.4.3"
 log = "0.4.17"
 log4rs = "1.2.0"
 num_cpus = "1.13.1"

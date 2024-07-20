@@ -3,6 +3,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use log::debug;
 use log::error;
 use log::info;
 use rusqlite::Connection;
@@ -12,10 +13,11 @@ use uuid::timestamp;
 use uuid::NoContext;
 use uuid::Uuid;
 
-use crate::base::WALFRAME_HEADER_SIZE;
 use crate::config::DatabaseConfig;
 use crate::error::Error;
 use crate::error::Result;
+use crate::sqlite::read_wal_header;
+use crate::sqlite::WALFRAME_HEADER_SIZE;
 
 struct Database {
     config: DatabaseConfig,
@@ -113,17 +115,15 @@ impl Database {
     }
 
     fn sync(&mut self) -> Result<()> {
-        println!("sync Database");
-
         if let Err(e) = self.ensure_wal_exists() {
             error!("ensure_wal_exists error: {:?}", e);
             return Ok(());
         }
 
-        println!("after ensure_wal_exists");
-
         if let Err(e) = self.verify() {
+            error!("verify fail: {:?}", e);
             if e.code() == Error::STORAGE_NOT_FOUND {
+                debug!("try to create new generation...");
                 self.create_generation()?;
             } else {
                 error!("verify error: {:?}", e);
@@ -135,8 +135,7 @@ impl Database {
     }
 
     fn create_generation(&self) -> Result<()> {
-        println!("create_generation: {:?}", self.generation_path);
-        // Generate random generation hex name.
+        // Generate random generation using UUID V7
         let timestamp = timestamp::Timestamp::now(NoContext);
         let generation = Uuid::new_v7(timestamp).as_simple().to_string();
         fs::write(&self.generation_path, generation.clone())?;
@@ -145,8 +144,21 @@ impl Database {
         let wal_dir_path = Path::new(&self.generations_dir)
             .join(generation)
             .join("wal");
+        debug!("create new wal dir {:?}", wal_dir_path);
         fs::create_dir_all(&wal_dir_path)?;
 
+        self.init_shadow_wal_file(wal_dir_path.as_path().to_str().unwrap())?;
+        Ok(())
+    }
+
+    fn init_shadow_wal_file(&self, shadow_wal: &str) -> Result<()> {
+        debug!("init_shadow_wal_file {}", shadow_wal);
+        // read wal file header
+        let wal_header = read_wal_header(&self.wal_file)?;
+        debug!("wal header: {:?}", wal_header);
+        if wal_header.page_size != self.page_size {
+            return Err(Error::SqliteWalHeaderError("Invalid page size"));
+        }
         Ok(())
     }
 
@@ -195,13 +207,19 @@ impl Database {
             }
         }
 
-        println!("after read_dir");
         Ok(())
     }
 
     fn verify(&mut self) -> Result<SyncInfo> {
-        println!("read generation_path: {:?}", self.generation_path);
+        debug!("read generation_path: {:?}", self.generation_path);
         let generation = fs::read_to_string(&self.generation_path)?;
+        debug!(
+            "after read generation_path: {:?}, {:?}",
+            self.generation_path, generation
+        );
+        if generation.is_empty() {
+            return Err(Error::StorageNotFound("empty generation"));
+        }
 
         let db_file = fs::metadata(&self.config.path)?;
         let db_size = db_file.len();

@@ -1,6 +1,5 @@
 use log::LevelFilter;
 use log4rs;
-use log4rs::append::console::ConsoleAppender;
 use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
 use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
 use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
@@ -49,22 +48,7 @@ pub fn init_log(log_config: LogConfig) -> Result<()> {
                 .build("logfile", level),
         );
 
-    let config = if log_config.to_stderr {
-        let stdout = ConsoleAppender::builder()
-            .encoder(Box::new(PatternEncoder::new(&log_line_pattern)))
-            .build();
-
-        bulder
-            .appender(Appender::builder().build("stdout", Box::new(stdout)))
-            .build(
-                Root::builder()
-                    .appender("logfile")
-                    .appender("stdout")
-                    .build(level),
-            )?
-    } else {
-        bulder.build(Root::builder().appender("logfile").build(level))?
-    };
+    let config = bulder.build(Root::builder().appender("logfile").build(level))?;
 
     let _ = log4rs::init_config(config)?;
 

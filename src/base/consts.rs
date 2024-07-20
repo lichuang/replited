@@ -1,1 +1,0 @@
-pub const WALFRAME_HEADER_SIZE: u64 = 24;

@@ -28,7 +28,7 @@ impl Debug for OtherErrors {
 
 impl From<log::SetLoggerError> for Error {
     fn from(error: log::SetLoggerError) -> Self {
-        Error::InitLoggerError(format!("Init logger error: {}", error))
+        Error::InitLoggerError(format!("Set logger error: {}", error))
     }
 }
 

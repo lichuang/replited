@@ -1,5 +1,5 @@
-mod consts;
+mod numerical;
 mod string;
 
-pub use consts::WALFRAME_HEADER_SIZE;
+pub use numerical::is_power_of_two;
 pub use string::mask_string;
