@@ -1,7 +1,6 @@
 [log]
 level = "Debug"
 dir = "/var/log/litesync/"
-to_stderr = true
 
 [[database]]
 path = "/Users/codedump/local/sqlite/test.db"

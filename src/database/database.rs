@@ -16,7 +16,7 @@ use uuid::Uuid;
 use crate::config::DatabaseConfig;
 use crate::error::Error;
 use crate::error::Result;
-use crate::sqlite::read_wal_header;
+use crate::sqlite::WALHeader;
 use crate::sqlite::WALFRAME_HEADER_SIZE;
 
 struct Database {
@@ -154,7 +154,7 @@ impl Database {
     fn init_shadow_wal_file(&self, shadow_wal: &str) -> Result<()> {
         debug!("init_shadow_wal_file {}", shadow_wal);
         // read wal file header
-        let wal_header = read_wal_header(&self.wal_file)?;
+        let wal_header = WALHeader::read(&self.wal_file)?;
         debug!("wal header: {:?}", wal_header);
         if wal_header.page_size != self.page_size {
             return Err(Error::SqliteWalHeaderError("Invalid page size"));
