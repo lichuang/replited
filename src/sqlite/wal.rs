@@ -1,51 +1,18 @@
-pub const WALFRAME_HEADER_SIZE: u64 = 24;
-pub const WAL_HEADER_SIZE: usize = 32;
-
-const BIG_ENDIAN_WAL_HEADER_MAGIC: [u8; 4] = [0x37, 0x7f, 0x06, 0x83];
-const LITTLE_ENDIAN_WAL_HEADER_MAGIC: [u8; 4] = [0x37, 0x7f, 0x06, 0x82];
-
 use std::fs::File;
 use std::io::Read;
 
 use crate::base::is_power_of_two;
 use crate::error::Error;
 use crate::error::Result;
+use crate::sqlite::checksum;
+use crate::sqlite::WAL_HEADER_BIG_ENDIAN_MAGIC;
+use crate::sqlite::WAL_HEADER_LITTLE_ENDIAN_MAGIC;
+use crate::sqlite::WAL_HEADER_SIZE;
 
 #[derive(Clone, Debug)]
 pub struct WALHeader {
     data: [u8; WAL_HEADER_SIZE],
     pub page_size: u64,
-}
-
-// implementation of sqlite check algorithm
-fn checksum(data: &[u8], is_big_endian: bool) -> (u32, u32) {
-    let mut i = 0;
-    let mut s1: u32 = 0;
-    let mut s2: u32 = 0;
-    while i < data.len() {
-        let bytes1 = &data[i..i + 4];
-        let bytes2 = &data[i + 4..i + 8];
-        let (n1, n2) = if is_big_endian {
-            let n1 = u32::from_be_bytes(bytes1.try_into().unwrap());
-            let n2 = u32::from_be_bytes(bytes2.try_into().unwrap());
-
-            (n1, n2)
-        } else {
-            let n1 = u32::from_le_bytes(bytes1.try_into().unwrap());
-            let n2 = u32::from_le_bytes(bytes2.try_into().unwrap());
-
-            (n1, n2)
-        };
-        // use `wrapping_add` instead of `+` directly, or else will be overflow
-        s1 = s1.wrapping_add(n1);
-        s1 = s1.wrapping_add(s2);
-        s2 = s2.wrapping_add(n2);
-        s2 = s2.wrapping_add(s1);
-
-        i += 8;
-    }
-
-    (s1, s2)
 }
 
 impl WALHeader {
@@ -62,9 +29,9 @@ impl WALHeader {
 
         let magic: &[u8] = &data[0..4];
         // check magic
-        let is_big_endian = if magic == &BIG_ENDIAN_WAL_HEADER_MAGIC {
+        let is_big_endian = if magic == &WAL_HEADER_BIG_ENDIAN_MAGIC {
             true
-        } else if magic == &LITTLE_ENDIAN_WAL_HEADER_MAGIC {
+        } else if magic == &WAL_HEADER_LITTLE_ENDIAN_MAGIC {
             false
         } else {
             return Err(Error::SqliteWalHeaderError("Unknown WAL file header magic"));
