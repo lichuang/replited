@@ -11,7 +11,7 @@ use crate::sqlite::WAL_HEADER_SIZE;
 
 #[derive(Clone, Debug)]
 pub struct WALHeader {
-    data: [u8; WAL_HEADER_SIZE],
+    pub data: [u8; WAL_HEADER_SIZE],
     pub page_size: u64,
 }
 

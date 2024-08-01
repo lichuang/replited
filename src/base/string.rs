@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 /// Mask a string by "******", but keep `unmask_len` of suffix.
 #[inline]
 pub fn mask_string(s: &str, unmask_len: usize) -> String {
@@ -18,4 +20,10 @@ pub fn u8_array_as_hex(arr: &[u8]) -> String {
         .join(" ");
 
     hex_str
+}
+
+pub fn format_integer_with_leading_zeros(num: u32, min_length: usize) -> String {
+    let mut result = String::new();
+    write!(&mut result, "{:0>width$}", num, width = min_length).unwrap();
+    result
 }

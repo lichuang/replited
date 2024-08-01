@@ -1,4 +1,7 @@
 use std::fs;
+use std::io::Write;
+use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -13,6 +16,7 @@ use uuid::timestamp;
 use uuid::NoContext;
 use uuid::Uuid;
 
+use crate::base::format_integer_with_leading_zeros;
 use crate::config::DatabaseConfig;
 use crate::error::Error;
 use crate::error::Result;
@@ -24,6 +28,7 @@ struct Database {
     connection: Connection,
     generations_dir: String,
     generation_path: String,
+    shadow_wal_dir: String,
     db_dir: String,
     wal_file: String,
     page_size: u64,
@@ -111,6 +116,7 @@ impl Database {
             generation_path,
             wal_file,
             page_size,
+            shadow_wal_dir: "".to_string(),
         })
     }
 
@@ -134,7 +140,19 @@ impl Database {
         Ok(())
     }
 
-    fn create_generation(&self) -> Result<()> {
+    fn shadow_wal_file(&self, index: u32) -> String {
+        let shadow_wal_dir = &self.shadow_wal_dir;
+        let i = format_integer_with_leading_zeros(index, 8);
+        let file = format!("{}.wal", i);
+        Path::new(shadow_wal_dir)
+            .join(file)
+            .as_path()
+            .to_str()
+            .unwrap()
+            .to_string()
+    }
+
+    fn create_generation(&mut self) -> Result<()> {
         // Generate random generation using UUID V7
         let timestamp = timestamp::Timestamp::now(NoContext);
         let generation = Uuid::new_v7(timestamp).as_simple().to_string();
@@ -147,18 +165,41 @@ impl Database {
         debug!("create new wal dir {:?}", wal_dir_path);
         fs::create_dir_all(&wal_dir_path)?;
 
-        self.init_shadow_wal_file(wal_dir_path.as_path().to_str().unwrap())?;
+        let wal_dir_path = wal_dir_path.as_path().to_str().unwrap();
+        self.shadow_wal_dir = wal_dir_path.to_string();
+        self.init_shadow_wal_file(self.shadow_wal_file(0))?;
         Ok(())
     }
 
-    fn init_shadow_wal_file(&self, shadow_wal: &str) -> Result<()> {
+    fn init_shadow_wal_file(&self, shadow_wal: String) -> Result<()> {
         debug!("init_shadow_wal_file {}", shadow_wal);
+
         // read wal file header
         let wal_header = WALHeader::read(&self.wal_file)?;
-        debug!("wal header: {:?}", wal_header);
         if wal_header.page_size != self.page_size {
             return Err(Error::SqliteWalHeaderError("Invalid page size"));
         }
+
+        // create new shadow wal file
+        let db_file_metadata = fs::metadata(&self.config.path)?;
+        let mode = db_file_metadata.mode();
+        let mut shaddow_wal_file = fs::File::create(&shadow_wal)?;
+        let mut permissions = shaddow_wal_file.metadata()?.permissions();
+        permissions.set_mode(mode);
+        shaddow_wal_file.set_permissions(permissions)?;
+        std::os::unix::fs::chown(
+            &shadow_wal,
+            Some(db_file_metadata.uid()),
+            Some(db_file_metadata.gid()),
+        )?;
+        shaddow_wal_file.write(&wal_header.data)?;
+        debug!("create shadow wal file {}", shadow_wal);
+
+        self.copy_to_shadow_wal(shadow_wal)?;
+        Ok(())
+    }
+
+    fn copy_to_shadow_wal(&self, shadow_wal: String) -> Result<()> {
         Ok(())
     }
 
