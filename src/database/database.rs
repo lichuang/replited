@@ -1,4 +1,8 @@
 use std::fs;
+use std::fs::File;
+use std::io::Read;
+use std::io::Seek;
+use std::io::SeekFrom;
 use std::io::Write;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
@@ -20,8 +24,12 @@ use crate::base::format_integer_with_leading_zeros;
 use crate::config::DatabaseConfig;
 use crate::error::Error;
 use crate::error::Result;
+use crate::sqlite::align_frame;
+use crate::sqlite::read_last_checksum;
+use crate::sqlite::WALFrame;
 use crate::sqlite::WALHeader;
 use crate::sqlite::WALFRAME_HEADER_SIZE;
+use crate::sqlite::WAL_HEADER_SIZE;
 
 struct Database {
     config: DatabaseConfig,
@@ -31,7 +39,7 @@ struct Database {
     shadow_wal_dir: String,
     db_dir: String,
     wal_file: String,
-    page_size: u64,
+    page_size: u32,
 }
 
 struct SyncInfo {
@@ -183,16 +191,17 @@ impl Database {
         // create new shadow wal file
         let db_file_metadata = fs::metadata(&self.config.path)?;
         let mode = db_file_metadata.mode();
-        let mut shaddow_wal_file = fs::File::create(&shadow_wal)?;
-        let mut permissions = shaddow_wal_file.metadata()?.permissions();
+        let mut shadow_wal_file = fs::File::create(&shadow_wal)?;
+        let mut permissions = shadow_wal_file.metadata()?.permissions();
         permissions.set_mode(mode);
-        shaddow_wal_file.set_permissions(permissions)?;
+        shadow_wal_file.set_permissions(permissions)?;
         std::os::unix::fs::chown(
             &shadow_wal,
             Some(db_file_metadata.uid()),
             Some(db_file_metadata.gid()),
         )?;
-        shaddow_wal_file.write(&wal_header.data)?;
+        shadow_wal_file.write(&wal_header.data)?;
+        shadow_wal_file.flush()?;
         debug!("create shadow wal file {}", shadow_wal);
 
         self.copy_to_shadow_wal(shadow_wal)?;
@@ -200,6 +209,33 @@ impl Database {
     }
 
     fn copy_to_shadow_wal(&self, shadow_wal: String) -> Result<()> {
+        let wal_file_metadata = fs::metadata(&self.wal_file)?;
+        let orig_wal_size = align_frame(self.page_size, wal_file_metadata.size());
+
+        let shadow_wal_file_metadata = fs::metadata(&shadow_wal)?;
+        let orig_shadow_wal_size = align_frame(self.page_size, shadow_wal_file_metadata.size());
+        println!(
+            "shadow_wal size: {} {}",
+            shadow_wal_file_metadata.size(),
+            orig_shadow_wal_size
+        );
+
+        let wal_header = WALHeader::read(&shadow_wal)?;
+
+        // copy wal frames into temp shadow wal file
+        let temp_shadow_wal_file = format!("{}.tmp", shadow_wal);
+        let mut temp_file = File::create(&temp_shadow_wal_file)?;
+
+        // seek on real db wal
+        let mut wal_file = File::open(&self.wal_file)?;
+        wal_file.seek(SeekFrom::Start(orig_shadow_wal_size))?;
+
+        let mut shadow_wal_file = File::open(&shadow_wal)?;
+        let (ck1, ck2) = read_last_checksum(&mut shadow_wal_file, self.page_size)?;
+        loop {
+            let wal_frame = WALFrame::read(&mut wal_file, ck1, ck2, self.page_size, &wal_header)?;
+            break;
+        }
         Ok(())
     }
 
@@ -212,7 +248,7 @@ impl Database {
             )));
         }
 
-        if stat.len() >= WALFRAME_HEADER_SIZE {
+        if stat.len() >= WALFRAME_HEADER_SIZE as u64 {
             return Ok(());
         }
 
@@ -222,17 +258,6 @@ impl Database {
         )?;
 
         Ok(())
-    }
-
-    fn align_frame(&self, offset: u64) -> u64 {
-        if offset < WALFRAME_HEADER_SIZE {
-            return 0;
-        }
-
-        let frame_size = WALFRAME_HEADER_SIZE + self.page_size;
-        let frame_num = (offset - WALFRAME_HEADER_SIZE) / frame_size;
-
-        (frame_num * frame_size) + WALFRAME_HEADER_SIZE
     }
 
     fn current_shadow_wal_index(&self, generation: &String) -> Result<()> {
@@ -267,7 +292,7 @@ impl Database {
         let db_mod_time = db_file.modified()?;
 
         let wal_file = fs::metadata(&self.wal_file)?;
-        let wal_size = self.align_frame(wal_file.len());
+        let wal_size = align_frame(self.page_size, wal_file.len());
 
         self.current_shadow_wal_index(&generation)?;
         Ok(SyncInfo { generation })

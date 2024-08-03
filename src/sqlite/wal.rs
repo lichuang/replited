@@ -11,8 +11,11 @@ use crate::sqlite::WAL_HEADER_SIZE;
 
 #[derive(Clone, Debug)]
 pub struct WALHeader {
-    pub data: [u8; WAL_HEADER_SIZE],
-    pub page_size: u64,
+    pub data: Vec<u8>,
+    pub salt1: u32,
+    pub salt2: u32,
+    pub page_size: u32,
+    pub is_big_endian: bool,
 }
 
 impl WALHeader {
@@ -24,7 +27,7 @@ impl WALHeader {
             return Err(Error::SqliteWalHeaderError("Invalid WAL file"));
         }
 
-        let mut data = [0u8; WAL_HEADER_SIZE];
+        let mut data: Vec<u8> = vec![0u8; WAL_HEADER_SIZE];
         file.read_exact(&mut data)?;
 
         let magic: &[u8] = &data[0..4];
@@ -39,25 +42,34 @@ impl WALHeader {
 
         // check page size
         let page_size = &data[8..12];
-        let page_size = u32::from_be_bytes(page_size.try_into().unwrap());
+        let page_size = u32::from_be_bytes(page_size.try_into()?);
         if !is_power_of_two(page_size) || page_size < 1024 {
             return Err(Error::SqliteWalHeaderError("Invalid page size"));
         }
 
         // checksum
-        let (s1, s2) = checksum(&data[0..24], is_big_endian);
+        let (s1, s2) = checksum(&data[0..24], 0, 0, is_big_endian);
 
         let checksum1 = &data[24..28];
-        let checksum1 = u32::from_be_bytes(checksum1.try_into().unwrap());
+        let checksum1 = u32::from_be_bytes(checksum1.try_into()?);
         let checksum2 = &data[28..32];
-        let checksum2 = u32::from_be_bytes(checksum2.try_into().unwrap());
+        let checksum2 = u32::from_be_bytes(checksum2.try_into()?);
 
         if checksum1 != s1 || checksum2 != s2 {
             return Err(Error::SqliteWalHeaderError("Invalid wal header checksum"));
         }
+
+        let s1 = &data[16..20];
+        let salt1 = u32::from_be_bytes(s1.try_into()?);
+        let s2 = &data[20..24];
+        let salt2 = u32::from_be_bytes(s2.try_into()?);
+
         Ok(WALHeader {
             data,
-            page_size: page_size as u64,
+            salt1,
+            salt2,
+            page_size,
+            is_big_endian,
         })
     }
 }

@@ -69,3 +69,9 @@ impl From<std::io::Error> for Error {
         }
     }
 }
+
+impl From<std::array::TryFromSliceError> for Error {
+    fn from(e: std::array::TryFromSliceError) -> Error {
+        Error::from_std_error(e)
+    }
+}

@@ -72,7 +72,9 @@ build_error! {
     SqliteError(120),
     SqliteWalError(121),
     SqliteWalHeaderError(122),
+    SqliteWalFrameHeaderError(123),
 
     // other error
     PanicError(140),
+    UnexpectedEOFError(141),
 }
