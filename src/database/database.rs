@@ -1,6 +1,5 @@
 use std::fs;
 use std::fs::File;
-use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
@@ -14,6 +13,7 @@ use log::debug;
 use log::error;
 use log::info;
 use rusqlite::Connection;
+use rusqlite::Transaction;
 use tokio::sync::broadcast::Receiver;
 use tokio::time::timeout;
 use uuid::timestamp;
@@ -29,7 +29,6 @@ use crate::sqlite::read_last_checksum;
 use crate::sqlite::WALFrame;
 use crate::sqlite::WALHeader;
 use crate::sqlite::WALFRAME_HEADER_SIZE;
-use crate::sqlite::WAL_HEADER_SIZE;
 
 struct Database {
     config: DatabaseConfig,
@@ -40,6 +39,8 @@ struct Database {
     db_dir: String,
     wal_file: String,
     page_size: u32,
+    // long running read transaction
+    // rtx: Option<Transaction<'a>>,
 }
 
 struct SyncInfo {
@@ -208,22 +209,29 @@ impl Database {
         Ok(())
     }
 
-    fn copy_to_shadow_wal(&self, shadow_wal: String) -> Result<()> {
+    // return original wal file size and new wal size
+    fn copy_to_shadow_wal(&self, shadow_wal: String) -> Result<(u64, u64)> {
         let wal_file_metadata = fs::metadata(&self.wal_file)?;
         let orig_wal_size = align_frame(self.page_size, wal_file_metadata.size());
 
         let shadow_wal_file_metadata = fs::metadata(&shadow_wal)?;
         let orig_shadow_wal_size = align_frame(self.page_size, shadow_wal_file_metadata.size());
-        println!(
-            "shadow_wal size: {} {}",
-            shadow_wal_file_metadata.size(),
-            orig_shadow_wal_size
+        debug!(
+            "copy_to_shadow_wal orig_wal_size: {},  orig_shadow_wal_size: {}",
+            orig_wal_size, orig_shadow_wal_size
         );
 
+        // read shadow wal header
         let wal_header = WALHeader::read(&shadow_wal)?;
 
         // copy wal frames into temp shadow wal file
         let temp_shadow_wal_file = format!("{}.tmp", shadow_wal);
+        if let Err(e) = fs::remove_file(&temp_shadow_wal_file) {
+            // ignore file not exists case
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return Err(e.into());
+            }
+        }
         let mut temp_file = File::create(&temp_shadow_wal_file)?;
 
         // seek on real db wal
@@ -231,12 +239,47 @@ impl Database {
         wal_file.seek(SeekFrom::Start(orig_shadow_wal_size))?;
 
         let mut shadow_wal_file = File::open(&shadow_wal)?;
+        // read last checksum of shadow wal file
         let (ck1, ck2) = read_last_checksum(&mut shadow_wal_file, self.page_size)?;
+        let mut offset = orig_shadow_wal_size;
+        let mut last_commit_size = orig_shadow_wal_size;
+        // Read through WAL from last position to find the page of the last
+        // committed transaction.
         loop {
-            let wal_frame = WALFrame::read(&mut wal_file, ck1, ck2, self.page_size, &wal_header)?;
-            break;
+            let wal_frame = WALFrame::read(&mut wal_file, ck1, ck2, self.page_size, &wal_header);
+            let wal_frame = match wal_frame {
+                Ok(wal_frame) => wal_frame,
+                Err(e) => {
+                    if e.code() == Error::UNEXPECTED_E_O_F_ERROR {
+                        debug!("copy_to_shadow_wal end of file at offset: {}", offset);
+                        break;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            };
+
+            // Write page to temporary WAL file.
+            temp_file.write(&wal_frame.data)?;
+
+            offset += wal_frame.data.len() as u64;
+            if wal_frame.db_size != 0 {
+                last_commit_size = offset;
+            }
         }
-        Ok(())
+
+        // If no WAL writes found, exit.
+        if last_commit_size == orig_shadow_wal_size {
+            return Ok((orig_wal_size, last_commit_size));
+        }
+
+        // copy frames from temp file to shadow wal file
+        temp_file.flush()?;
+        temp_file.seek(SeekFrom::Start(0))?;
+        std::io::copy(&mut temp_file, &mut shadow_wal_file)?;
+        fs::remove_file(&temp_shadow_wal_file)?;
+
+        Ok((orig_wal_size, last_commit_size))
     }
 
     fn ensure_wal_exists(&self) -> Result<()> {

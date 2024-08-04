@@ -2,7 +2,7 @@
 
 use crate::error::Error;
 
-pub const INTERNAL_ERROR_CODE: u16 = 11;
+pub const INTERNAL_ERROR_CODE: u32 = 11;
 
 macro_rules! build_error {
     ($($(#[$meta:meta])* $body:ident($code:expr)),*$(,)*) => {
@@ -12,7 +12,7 @@ macro_rules! build_error {
                     $(
                         #[$meta]
                     )*
-                    pub const [< $body:snake:upper >]: u16 = $code;
+                    pub const [< $body:snake:upper >]: u32 = $code;
                 }
                 $(
                     #[$meta]

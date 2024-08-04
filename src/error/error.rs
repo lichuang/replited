@@ -6,7 +6,7 @@ use super::error_code::INTERNAL_ERROR_CODE;
 
 #[derive(thiserror::Error)]
 pub struct Error {
-    code: u16,
+    code: u32,
     name: String,
     display_text: String,
     detail: String,
@@ -14,7 +14,7 @@ pub struct Error {
 }
 
 impl Error {
-    pub fn code(&self) -> u16 {
+    pub fn code(&self) -> u32 {
         self.code
     }
 
@@ -95,7 +95,7 @@ impl Error {
     }
 
     pub fn create(
-        code: u16,
+        code: u32,
         name: impl ToString,
         display_text: String,
         detail: String,
