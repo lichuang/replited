@@ -11,6 +11,7 @@ use crate::base::mask_string;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum StorageParams {
+    Fs(StorageFsConfig),
     S3(StorageS3Config),
 }
 
@@ -18,6 +19,7 @@ pub enum StorageParams {
 impl Display for StorageParams {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
+            StorageParams::Fs(v) => write!(f, "fs | root={}", v.root),
             StorageParams::S3(v) => {
                 write!(
                     f,
@@ -25,6 +27,20 @@ impl Display for StorageParams {
                     v.bucket, v.root, v.endpoint_url
                 )
             }
+        }
+    }
+}
+
+/// Config for storage backend fs.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageFsConfig {
+    pub root: String,
+}
+
+impl Default for StorageFsConfig {
+    fn default() -> Self {
+        Self {
+            root: "_data".to_string(),
         }
     }
 }

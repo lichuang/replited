@@ -1,6 +1,9 @@
+use std::thread;
+
 use tokio::sync::broadcast;
-use tokio::sync::broadcast::Receiver;
-use tokio::sync::broadcast::Sender;
+use tokio::sync::mpsc;
+use tokio::time::sleep;
+use tokio::time::Duration;
 
 use super::command::Command;
 use crate::config::Config;
@@ -19,14 +22,11 @@ impl Replicate {
 
 impl Command for Replicate {
     async fn run(&mut self) -> Result<()> {
-        let (_tx, rx): (Sender<&str>, Receiver<&str>) = broadcast::channel(16);
-
         let mut handles = vec![];
         for database in &self.config.database {
             let datatase = database.clone();
-            let rx = rx.resubscribe();
             let handle = tokio::spawn(async move {
-                let _ = run_database(datatase, rx).await;
+                let _ = run_database(datatase).await;
             });
 
             handles.push(handle);

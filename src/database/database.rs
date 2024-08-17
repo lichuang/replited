@@ -7,15 +7,16 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use log::debug;
 use log::error;
 use log::info;
 use rusqlite::Connection;
-use rusqlite::Transaction;
-use tokio::sync::broadcast::Receiver;
-use tokio::time::timeout;
+use tokio::sync::broadcast;
+use tokio::sync::broadcast::Sender;
+use tokio::task::JoinHandle;
 use uuid::timestamp;
 use uuid::NoContext;
 use uuid::Uuid;
@@ -29,18 +30,27 @@ use crate::sqlite::read_last_checksum;
 use crate::sqlite::WALFrame;
 use crate::sqlite::WALHeader;
 use crate::sqlite::WALFRAME_HEADER_SIZE;
+use crate::sync::Sync;
+use crate::sync::SyncCommand;
 
 struct Database {
     config: DatabaseConfig,
-    connection: Connection,
     generations_dir: String,
     generation_path: String,
     shadow_wal_dir: String,
     db_dir: String,
     wal_file: String,
     page_size: u32,
-    // long running read transaction
-    // rtx: Option<Transaction<'a>>,
+
+    connection: Connection,
+
+    // database connection for transaction
+    tx_connection: Option<Connection>,
+
+    // for sync
+    sync_notifier: Sender<SyncCommand>,
+    sync: Vec<Arc<Sync>>,
+    sync_handle: Vec<JoinHandle<()>>,
 }
 
 struct SyncInfo {
@@ -75,6 +85,28 @@ impl Database {
             "CREATE TABLE IF NOT EXISTS _litesync_lock (id INTEGER);",
             (),
         )?;
+        Ok(())
+    }
+
+    // acquire_read_lock begins a read transaction on the database to prevent checkpointing.
+    fn acquire_read_lock(&mut self) -> Result<()> {
+        if self.tx_connection.is_none() {
+            let tx_connection = Connection::open(&self.config.path)?;
+            // Execute read query to obtain read lock.
+            tx_connection.execute_batch("BEGIN;SELECT COUNT(1) FROM _litesync_seq;")?;
+            self.tx_connection = Some(tx_connection);
+        }
+
+        Ok(())
+    }
+
+    fn release_read_lock(&mut self) -> Result<()> {
+        // Rollback & clear read transaction.
+        if let Some(tx) = &self.tx_connection {
+            tx.execute_batch("ROLLBACK;")?;
+            self.tx_connection = None;
+        }
+
         Ok(())
     }
 
@@ -115,9 +147,18 @@ impl Database {
         // init path
         let (db_dir, generations_dir, generation_path) = Database::init_directory(&config)?;
 
-        // for replicate in &self.config.replicate {}
+        // init replicate
+        let (sync_notifier, rx) = broadcast::channel(16);
+        let mut sync = Vec::with_capacity(config.replicate.len());
+        let mut sync_handle = Vec::with_capacity(config.replicate.len());
+        for replicate in &config.replicate {
+            let s = Sync::new(replicate.clone())?;
+            let h = Sync::start(s.clone(), rx.resubscribe())?;
+            sync_handle.push(h);
+            sync.push(s);
+        }
 
-        Ok(Self {
+        let mut db = Self {
             config,
             connection,
             db_dir,
@@ -126,10 +167,19 @@ impl Database {
             wal_file,
             page_size,
             shadow_wal_dir: "".to_string(),
-        })
+            tx_connection: None,
+            sync_notifier,
+            sync,
+            sync_handle,
+        };
+
+        db.acquire_read_lock()?;
+        Ok(db)
     }
 
     fn sync(&mut self) -> Result<()> {
+        debug!("sync database: {}", self.config.path);
+
         if let Err(e) = self.ensure_wal_exists() {
             error!("ensure_wal_exists error: {:?}", e);
             return Ok(());
@@ -145,6 +195,9 @@ impl Database {
                 return Err(e);
             }
         }
+
+        // notify the database has been changed
+        self.sync_notifier.send(SyncCommand::DbChanged)?;
 
         Ok(())
     }
@@ -342,18 +395,18 @@ impl Database {
     }
 }
 
-pub async fn run_database(config: DatabaseConfig, mut rx: Receiver<&str>) -> Result<()> {
+impl Drop for Database {
+    fn drop(&mut self) {
+        let _ = self.release_read_lock();
+    }
+}
+
+pub async fn run_database(config: DatabaseConfig) -> Result<()> {
+    println!("run_database: {}", config.path);
     let mut database = Database::try_create(config)?;
     loop {
-        let result = timeout(Duration::from_secs(1), rx.recv()).await;
-
-        match result {
-            Ok(message) => {
-                log::info!("Received message: {:?}", message);
-                break;
-            }
-            Err(_) => database.sync()?,
-        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        database.sync()?;
     }
     Ok(())
 }

@@ -4,6 +4,7 @@ use std::fmt::Formatter;
 
 use super::error_code::INTERNAL_ERROR_CODE;
 use crate::error::Error;
+use crate::sync::SyncCommand;
 
 #[derive(thiserror::Error)]
 enum OtherErrors {
@@ -73,6 +74,18 @@ impl From<std::io::Error> for Error {
 
 impl From<std::array::TryFromSliceError> for Error {
     fn from(e: std::array::TryFromSliceError) -> Error {
+        Error::from_std_error(e)
+    }
+}
+
+impl From<tokio::sync::broadcast::error::SendError<SyncCommand>> for Error {
+    fn from(e: tokio::sync::broadcast::error::SendError<SyncCommand>) -> Error {
+        Error::from_std_error(e)
+    }
+}
+
+impl From<tokio::sync::broadcast::error::RecvError> for Error {
+    fn from(e: tokio::sync::broadcast::error::RecvError) -> Error {
         Error::from_std_error(e)
     }
 }
