@@ -1,5 +1,8 @@
 use std::fs;
 use std::fs::File;
+use std::fs::FileType;
+use std::fs::OpenOptions;
+use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
@@ -33,6 +36,8 @@ use crate::sqlite::WALFRAME_HEADER_SIZE;
 use crate::sync::Sync;
 use crate::sync::SyncCommand;
 
+const GenerationLen: usize = 32;
+
 struct Database {
     config: DatabaseConfig,
     generations_dir: String,
@@ -53,6 +58,7 @@ struct Database {
     sync_handle: Vec<JoinHandle<()>>,
 }
 
+#[derive(Debug)]
 struct SyncInfo {
     pub generation: String,
 }
@@ -185,10 +191,11 @@ impl Database {
             return Ok(());
         }
 
-        if let Err(e) = self.verify() {
+        let ret = self.verify();
+        if let Err(e) = ret {
             error!("verify fail: {:?}", e);
             if e.code() == Error::STORAGE_NOT_FOUND {
-                debug!("try to create new generation...");
+                debug!("generation not exists, try to create new generation...");
                 self.create_generation()?;
             } else {
                 error!("verify error: {:?}", e);
@@ -204,7 +211,7 @@ impl Database {
 
     fn shadow_wal_file(&self, index: u32) -> String {
         let shadow_wal_dir = &self.shadow_wal_dir;
-        let i = format_integer_with_leading_zeros(index, 8);
+        let i = format_integer_with_leading_zeros(index);
         let file = format!("{}.wal", i);
         Path::new(shadow_wal_dir)
             .join(file)
@@ -285,13 +292,22 @@ impl Database {
                 return Err(e.into());
             }
         }
-        let mut temp_file = File::create(&temp_shadow_wal_file)?;
+        // create a temp file to copy wal frames, truncate if exists
+        let mut temp_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&temp_shadow_wal_file)?;
 
         // seek on real db wal
         let mut wal_file = File::open(&self.wal_file)?;
-        wal_file.seek(SeekFrom::Start(orig_shadow_wal_size))?;
 
-        let mut shadow_wal_file = File::open(&shadow_wal)?;
+        let mut shadow_wal_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&shadow_wal)?;
+        wal_file.seek(SeekFrom::Start(orig_shadow_wal_size))?;
         // read last checksum of shadow wal file
         let (ck1, ck2) = read_last_checksum(&mut shadow_wal_file, self.page_size)?;
         let mut offset = orig_shadow_wal_size;
@@ -329,8 +345,14 @@ impl Database {
         // copy frames from temp file to shadow wal file
         temp_file.flush()?;
         temp_file.seek(SeekFrom::Start(0))?;
-        std::io::copy(&mut temp_file, &mut shadow_wal_file)?;
+
+        let mut buffer = Vec::new();
+        temp_file.read_to_end(&mut buffer)?;
         fs::remove_file(&temp_shadow_wal_file)?;
+
+        // append wal frames to end of shadow wal file
+        let mut shadow_wal_file = OpenOptions::new().append(true).open(&shadow_wal)?;
+        shadow_wal_file.write_all(&buffer).unwrap();
 
         Ok((orig_wal_size, last_commit_size))
     }
@@ -356,33 +378,52 @@ impl Database {
         Ok(())
     }
 
+    // parse_wal_path returns the index for the WAL file.
+    // Returns an error if the path is not a valid WAL path.
+    // fn parse_wal_path(&self, wal_file: &str) -> Result<i32> {}
+
+    // current_shadow_wal_index returns the current WAL index & total size.
     fn current_shadow_wal_index(&self, generation: &String) -> Result<()> {
         let wal_dir_path = Path::new(&self.generations_dir)
             .join(generation)
             .join("wal");
-        let wal_dir = fs::read_dir(&wal_dir_path);
+        let entries = fs::read_dir(&wal_dir_path)?;
 
-        match wal_dir {
-            Ok(wal_dir) => {}
-            Err(e) => {
-                println!("read_dir {:?} error: {}", wal_dir_path, e);
+        let mut total_size = 0;
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let file_type = entry.file_type()?;
+                if file_type.is_file() {
+                    let metadata = entry.metadata()?;
+                    total_size += metadata.size();
+                }
             }
         }
-
         Ok(())
     }
 
-    fn verify(&mut self) -> Result<SyncInfo> {
+    // current_generation returns the name of the generation saved to the "generation"
+    // file in the meta data directory.
+    // Returns error if none exists.
+    fn current_generation(&self) -> Result<String> {
         debug!("read generation_path: {:?}", self.generation_path);
         let generation = fs::read_to_string(&self.generation_path)?;
         debug!(
             "after read generation_path: {:?}, {:?}",
             self.generation_path, generation
         );
-        if generation.is_empty() {
+        if generation.len() != GenerationLen {
             return Err(Error::StorageNotFound("empty generation"));
         }
 
+        Ok(generation)
+    }
+
+    // verify ensures the current shadow WAL state matches where it left off from
+    // the real WAL. Returns generation & WAL sync information. If info.reason is
+    // not blank, verification failed and a new generation should be started.
+    fn verify(&mut self) -> Result<SyncInfo> {
+        let generation = self.current_generation()?;
         let db_file = fs::metadata(&self.config.path)?;
         let db_size = db_file.len();
         let db_mod_time = db_file.modified()?;
@@ -402,7 +443,6 @@ impl Drop for Database {
 }
 
 pub async fn run_database(config: DatabaseConfig) -> Result<()> {
-    println!("run_database: {}", config.path);
     let mut database = Database::try_create(config)?;
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;

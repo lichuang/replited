@@ -22,8 +22,20 @@ pub fn u8_array_as_hex(arr: &[u8]) -> String {
     hex_str
 }
 
-pub fn format_integer_with_leading_zeros(num: u32, min_length: usize) -> String {
-    let mut result = String::new();
-    write!(&mut result, "{:0>width$}", num, width = min_length).unwrap();
-    result
+pub fn format_integer_with_leading_zeros(num: u32) -> String {
+    format!("{:08X}", num)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_integer_with_leading_zeros;
+    use crate::error::Result;
+
+    #[test]
+    fn test_format_integer_with_leading_zeros() -> Result<()> {
+        let num = 0xab12;
+        let hex = format_integer_with_leading_zeros(num);
+        assert_eq!(&hex, "0000AB12");
+        Ok(())
+    }
 }

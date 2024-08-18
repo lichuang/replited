@@ -1,3 +1,4 @@
+mod file;
 mod numerical;
 mod string;
 

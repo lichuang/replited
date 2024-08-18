@@ -78,6 +78,12 @@ impl From<std::array::TryFromSliceError> for Error {
     }
 }
 
+impl From<std::num::ParseIntError> for Error {
+    fn from(e: std::num::ParseIntError) -> Error {
+        Error::from_std_error(e)
+    }
+}
+
 impl From<tokio::sync::broadcast::error::SendError<SyncCommand>> for Error {
     fn from(e: tokio::sync::broadcast::error::SendError<SyncCommand>) -> Error {
         Error::from_std_error(e)

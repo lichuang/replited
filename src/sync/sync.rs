@@ -49,7 +49,6 @@ impl Sync {
     }
 
     async fn command(&self, cmd: SyncCommand) -> Result<()> {
-        debug!("cmd: {:?}", cmd);
         Ok(())
     }
 }
