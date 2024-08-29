@@ -95,7 +95,9 @@ impl Display for LogConfig {
 
 #[derive(Clone, PartialEq, Eq, Deserialize)]
 pub struct DatabaseConfig {
+    // db file full path
     pub path: String,
+    // replicates of db file config
     pub replicate: Vec<StorageConfig>,
 }
 

@@ -25,6 +25,8 @@ use uuid::NoContext;
 use uuid::Uuid;
 
 use crate::base::format_integer_with_leading_zeros;
+use crate::base::format_wal_path;
+use crate::base::parse_wal_path;
 use crate::config::DatabaseConfig;
 use crate::error::Error;
 use crate::error::Result;
@@ -36,20 +38,28 @@ use crate::sqlite::WALFRAME_HEADER_SIZE;
 use crate::sync::Sync;
 use crate::sync::SyncCommand;
 
-const GenerationLen: usize = 32;
+const GENERATION_LEN: usize = 32;
+
+// MaxIndex is the maximum possible WAL index.
+// If this index is reached then a new generation will be started.
+const MAX_WAL_INDEX: u64 = 0x7FFFFFFF;
 
 struct Database {
     config: DatabaseConfig,
-    generations_dir: String,
-    generation_path: String,
+
+    // Path to the database metadata.
+    meta_dir: String,
+
+    // shadow wal directory, empty when there is no shadow wal file
     shadow_wal_dir: String,
-    db_dir: String,
+
+    // full wal file name of db file
     wal_file: String,
     page_size: u32,
 
     connection: Connection,
 
-    // database connection for transaction
+    // database connection for transaction, None if there if no tranction
     tx_connection: Option<Connection>,
 
     // for sync
@@ -61,6 +71,7 @@ struct Database {
 #[derive(Debug)]
 struct SyncInfo {
     pub generation: String,
+    pub wal_index: u64,
 }
 
 impl Database {
@@ -116,27 +127,15 @@ impl Database {
         Ok(())
     }
 
-    fn init_directory(config: &DatabaseConfig) -> Result<(String, String, String)> {
+    // init litesync directory
+    fn init_directory(config: &DatabaseConfig) -> Result<String> {
         let file_path = PathBuf::from(&config.path);
         let db_name = file_path.file_name().unwrap().to_str().unwrap();
         let dir_path = file_path.parent().unwrap_or_else(|| Path::new("."));
-        let generations_dir = format!(
-            "{}/.{}-litesync/generations/",
-            dir_path.to_str().unwrap(),
-            db_name,
-        );
-        let generation_path = format!(
-            "{}/.{}-litesync/generation",
-            dir_path.to_str().unwrap(),
-            db_name,
-        );
-        fs::create_dir_all(&generations_dir)?;
+        let meta_dir = format!("{}/.{}-litesync/", dir_path.to_str().unwrap(), db_name,);
+        fs::create_dir_all(&meta_dir)?;
 
-        Ok((
-            dir_path.to_str().unwrap().to_string(),
-            generations_dir,
-            generation_path,
-        ))
+        Ok(meta_dir)
     }
 
     fn try_create(config: DatabaseConfig) -> Result<Self> {
@@ -151,7 +150,7 @@ impl Database {
         let wal_file = format!("{}-wal", config.path);
 
         // init path
-        let (db_dir, generations_dir, generation_path) = Database::init_directory(&config)?;
+        let meta_dir = Database::init_directory(&config)?;
 
         // init replicate
         let (sync_notifier, rx) = broadcast::channel(16);
@@ -167,9 +166,7 @@ impl Database {
         let mut db = Self {
             config,
             connection,
-            db_dir,
-            generations_dir,
-            generation_path,
+            meta_dir,
             wal_file,
             page_size,
             shadow_wal_dir: "".to_string(),
@@ -186,14 +183,17 @@ impl Database {
     fn sync(&mut self) -> Result<()> {
         debug!("sync database: {}", self.config.path);
 
+        // make sure wal file has at least one frame in it
         if let Err(e) = self.ensure_wal_exists() {
             error!("ensure_wal_exists error: {:?}", e);
             return Ok(());
         }
 
+        // Verify our last sync matches the current state of the WAL.
+        // This ensures that we have an existing generation & that the last sync
+        // position of the real WAL hasn't been overwritten by another process.
         let ret = self.verify();
         if let Err(e) = ret {
-            error!("verify fail: {:?}", e);
             if e.code() == Error::STORAGE_NOT_FOUND {
                 debug!("generation not exists, try to create new generation...");
                 self.create_generation()?;
@@ -209,12 +209,41 @@ impl Database {
         Ok(())
     }
 
-    fn shadow_wal_file(&self, index: u32) -> String {
-        let shadow_wal_dir = &self.shadow_wal_dir;
-        let i = format_integer_with_leading_zeros(index);
-        let file = format!("{}.wal", i);
-        Path::new(shadow_wal_dir)
-            .join(file)
+    // returns the path of a single shadow WAL file.
+    fn shadow_wal_file(&self, generation: &str, index: u64) -> String {
+        Path::new(&self.shadow_wal_dir(generation))
+            .join(format_wal_path(index))
+            .as_path()
+            .to_str()
+            .unwrap()
+            .to_string()
+    }
+
+    // returns the path of the shadow wal directory
+    fn shadow_wal_dir(&self, generation: &str) -> String {
+        Path::new(&self.generations_dir(generation))
+            .join("wal")
+            .as_path()
+            .to_str()
+            .unwrap()
+            .to_string()
+    }
+
+    // returns the path of a single generation.
+    fn generations_dir(&self, generation: &str) -> String {
+        Path::new(&self.meta_dir)
+            .join("generations")
+            .join(generation)
+            .as_path()
+            .to_str()
+            .unwrap()
+            .to_string()
+    }
+
+    // returns the path of the name of the current generation.
+    fn generation_file_path(&self) -> String {
+        Path::new(&self.meta_dir)
+            .join("generation")
             .as_path()
             .to_str()
             .unwrap()
@@ -225,18 +254,16 @@ impl Database {
         // Generate random generation using UUID V7
         let timestamp = timestamp::Timestamp::now(NoContext);
         let generation = Uuid::new_v7(timestamp).as_simple().to_string();
-        fs::write(&self.generation_path, generation.clone())?;
+        fs::write(self.generation_file_path(), generation.clone())?;
 
         // Generate new directory.
-        let wal_dir_path = Path::new(&self.generations_dir)
-            .join(generation)
-            .join("wal");
+        let wal_dir_path = self.shadow_wal_dir(&generation);
         debug!("create new wal dir {:?}", wal_dir_path);
         fs::create_dir_all(&wal_dir_path)?;
 
-        let wal_dir_path = wal_dir_path.as_path().to_str().unwrap();
-        self.shadow_wal_dir = wal_dir_path.to_string();
-        self.init_shadow_wal_file(self.shadow_wal_file(0))?;
+        self.shadow_wal_dir = wal_dir_path;
+        // init first(index 0) shadow wal file
+        self.init_shadow_wal_file(self.shadow_wal_file(&generation, 0))?;
         Ok(())
     }
 
@@ -261,10 +288,12 @@ impl Database {
             Some(db_file_metadata.uid()),
             Some(db_file_metadata.gid()),
         )?;
+        // write wal file header into shadow wal file
         shadow_wal_file.write(&wal_header.data)?;
         shadow_wal_file.flush()?;
         debug!("create shadow wal file {}", shadow_wal);
 
+        // copy wal file frame into shadow wal file
         self.copy_to_shadow_wal(shadow_wal)?;
         Ok(())
     }
@@ -323,6 +352,7 @@ impl Database {
                         debug!("copy_to_shadow_wal end of file at offset: {}", offset);
                         break;
                     } else {
+                        error!("copy_to_shadow_wal error: {}", e);
                         return Err(e);
                     }
                 }
@@ -357,6 +387,7 @@ impl Database {
         Ok((orig_wal_size, last_commit_size))
     }
 
+    // make sure wal file has at least one frame in it
     fn ensure_wal_exists(&self) -> Result<()> {
         let stat = fs::metadata(&self.wal_file)?;
         if !stat.is_file() {
@@ -370,7 +401,8 @@ impl Database {
             return Ok(());
         }
 
-        let _ = self.connection.execute(
+        // create transaction that updates the internal table.
+        self.connection.execute(
             "INSERT INTO _litesync_seq (id, seq) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET seq = seq + 1;",
             (),
         )?;
@@ -378,41 +410,53 @@ impl Database {
         Ok(())
     }
 
-    // parse_wal_path returns the index for the WAL file.
-    // Returns an error if the path is not a valid WAL path.
-    // fn parse_wal_path(&self, wal_file: &str) -> Result<i32> {}
-
     // current_shadow_wal_index returns the current WAL index & total size.
-    fn current_shadow_wal_index(&self, generation: &String) -> Result<()> {
-        let wal_dir_path = Path::new(&self.generations_dir)
-            .join(generation)
-            .join("wal");
+    fn current_shadow_wal_index(&self, generation: &str) -> Result<(u64, u64)> {
+        let wal_dir_path = self.shadow_wal_dir(generation);
         let entries = fs::read_dir(&wal_dir_path)?;
 
         let mut total_size = 0;
+        let mut index = 0;
         for entry in entries {
             if let Ok(entry) = entry {
                 let file_type = entry.file_type()?;
-                if file_type.is_file() {
-                    let metadata = entry.metadata()?;
-                    total_size += metadata.size();
+                if !file_type.is_file() {
+                    continue;
+                }
+                let metadata = entry.metadata()?;
+                total_size += metadata.size();
+                let file_name = entry.file_name().into_string().unwrap();
+                match parse_wal_path(&file_name) {
+                    Err(e) => {
+                        debug!("invald wal file {:?}", file_name);
+                        continue;
+                    }
+                    Ok(i) => {
+                        if i > index {
+                            index = i;
+                        }
+                    }
                 }
             }
         }
-        Ok(())
+        if total_size == 0 {
+            return Err(Error::StorageNotFound("no shadow wal file"));
+        }
+        Ok((index, total_size))
     }
 
     // current_generation returns the name of the generation saved to the "generation"
     // file in the meta data directory.
     // Returns error if none exists.
     fn current_generation(&self) -> Result<String> {
-        debug!("read generation_path: {:?}", self.generation_path);
-        let generation = fs::read_to_string(&self.generation_path)?;
+        let generation_file = self.generation_file_path();
+        debug!("read generation_file: {:?}", generation_file);
+        let generation = fs::read_to_string(&generation_file)?;
         debug!(
-            "after read generation_path: {:?}, {:?}",
-            self.generation_path, generation
+            "after read generation_file: {:?}, {:?}",
+            generation_file, generation
         );
-        if generation.len() != GenerationLen {
+        if generation.len() != GENERATION_LEN {
             return Err(Error::StorageNotFound("empty generation"));
         }
 
@@ -423,16 +467,29 @@ impl Database {
     // the real WAL. Returns generation & WAL sync information. If info.reason is
     // not blank, verification failed and a new generation should be started.
     fn verify(&mut self) -> Result<SyncInfo> {
+        // get existing generation
         let generation = self.current_generation()?;
         let db_file = fs::metadata(&self.config.path)?;
         let db_size = db_file.len();
         let db_mod_time = db_file.modified()?;
 
+        // total bytes of real WAL.
         let wal_file = fs::metadata(&self.wal_file)?;
         let wal_size = align_frame(self.page_size, wal_file.len());
 
-        self.current_shadow_wal_index(&generation)?;
-        Ok(SyncInfo { generation })
+        // get current shadow wal index
+        let (wal_index, _total_size) = self.current_shadow_wal_index(&generation)?;
+        if wal_index > MAX_WAL_INDEX {
+            return Err(Error::ExceedMaxWalIndex("exceed max wal index"));
+        }
+        let shadow_wal_file = self.shadow_wal_file(&generation, wal_index);
+
+        // Determine shadow WAL current size.
+
+        Ok(SyncInfo {
+            generation,
+            wal_index,
+        })
     }
 }
 

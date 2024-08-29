@@ -7,6 +7,7 @@ use regex::Regex;
 use crate::error::Error;
 use crate::error::Result;
 
+static WAL_EXTENDION: &str = ".wal";
 static WAL_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([0-9a-f]{8})\.wal$").unwrap());
 
 // return base name of path
@@ -19,7 +20,7 @@ fn path_base(path: &str) -> Result<String> {
 }
 
 // parse wal file path, return wal index
-pub fn parse_wal_path(path: &str) -> Result<u32> {
+pub fn parse_wal_path(path: &str) -> Result<u64> {
     let base = path_base(path)?;
     let a = WAL_REGEX
         .captures(&base)
@@ -29,13 +30,18 @@ pub fn parse_wal_path(path: &str) -> Result<u32> {
         .ok_or(Error::InvalidPath(format!("invalid wal path {}", path)))?
         .as_str();
 
-    Ok(u32::from_str_radix(a, 16)?)
+    Ok(u64::from_str_radix(a, 16)?)
+}
+
+pub fn format_wal_path(index: u64) -> String {
+    format!("{:08X}{}", index, WAL_EXTENDION)
 }
 
 #[cfg(test)]
 mod tests {
     use super::path_base;
     use crate::base::file::parse_wal_path;
+    use crate::base::format_wal_path;
     use crate::error::Error;
     use crate::error::Result;
 
@@ -64,6 +70,9 @@ mod tests {
         let index = parse_wal_path(path);
         assert!(index.is_err());
 
+        let path = format!("a/b/{}", format_wal_path(19));
+        let index = parse_wal_path(&path)?;
+        assert_eq!(index, 19);
         Ok(())
     }
 }
