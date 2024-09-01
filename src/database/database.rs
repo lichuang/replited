@@ -19,6 +19,7 @@ use log::info;
 use rusqlite::Connection;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Sender;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::timestamp;
 use uuid::NoContext;
@@ -26,6 +27,8 @@ use uuid::Uuid;
 
 use crate::base::format_integer_with_leading_zeros;
 use crate::base::format_wal_path;
+use crate::base::generation_file_path;
+use crate::base::generations_dir;
 use crate::base::parse_wal_path;
 use crate::config::DatabaseConfig;
 use crate::error::Error;
@@ -44,7 +47,7 @@ const GENERATION_LEN: usize = 32;
 // If this index is reached then a new generation will be started.
 const MAX_WAL_INDEX: u64 = 0x7FFFFFFF;
 
-struct Database {
+pub struct Database {
     config: DatabaseConfig,
 
     // Path to the database metadata.
@@ -66,6 +69,23 @@ struct Database {
     sync_notifier: Sender<SyncCommand>,
     sync: Vec<Arc<Sync>>,
     sync_handle: Vec<JoinHandle<()>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WalGenerationPos {
+    pub generation: String,
+    pub wal_index: u64,
+    pub offset: u64,
+}
+
+impl Default for WalGenerationPos {
+    fn default() -> Self {
+        Self {
+            generation: "".to_string(),
+            wal_index: 0,
+            offset: 0,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -154,17 +174,18 @@ impl Database {
 
         // init replicate
         let (sync_notifier, rx) = broadcast::channel(16);
+        let (mpsc_tx, mpsc_rx) = mpsc::channel(16);
         let mut sync = Vec::with_capacity(config.replicate.len());
         let mut sync_handle = Vec::with_capacity(config.replicate.len());
         for replicate in &config.replicate {
-            let s = Sync::new(replicate.clone())?;
+            let s = Sync::new(replicate.clone(), mpsc_tx.clone())?;
             let h = Sync::start(s.clone(), rx.resubscribe())?;
             sync_handle.push(h);
             sync.push(s);
         }
 
         let mut db = Self {
-            config,
+            config: config.clone(),
             connection,
             meta_dir,
             wal_file,
@@ -177,6 +198,7 @@ impl Database {
         };
 
         db.acquire_read_lock()?;
+
         Ok(db)
     }
 
@@ -204,9 +226,27 @@ impl Database {
         }
 
         // notify the database has been changed
-        self.sync_notifier.send(SyncCommand::DbChanged)?;
+        let generation_pos = self.wal_generation_position()?;
+        self.sync_notifier
+            .send(SyncCommand::DbChanged(generation_pos))?;
 
         Ok(())
+    }
+
+    pub fn wal_generation_position(&self) -> Result<WalGenerationPos> {
+        let generation = self.current_generation()?;
+
+        let (wal_index, _total_size) = self.current_shadow_wal_index(&generation)?;
+
+        let shadow_wal_file = self.shadow_wal_file(&generation, wal_index);
+
+        let file_metadata = fs::metadata(&shadow_wal_file)?;
+
+        Ok(WalGenerationPos {
+            generation,
+            wal_index,
+            offset: align_frame(self.page_size, file_metadata.size()),
+        })
     }
 
     // returns the path of a single shadow WAL file.
@@ -221,29 +261,8 @@ impl Database {
 
     // returns the path of the shadow wal directory
     fn shadow_wal_dir(&self, generation: &str) -> String {
-        Path::new(&self.generations_dir(generation))
+        Path::new(&generations_dir(&self.meta_dir, generation))
             .join("wal")
-            .as_path()
-            .to_str()
-            .unwrap()
-            .to_string()
-    }
-
-    // returns the path of a single generation.
-    fn generations_dir(&self, generation: &str) -> String {
-        Path::new(&self.meta_dir)
-            .join("generations")
-            .join(generation)
-            .as_path()
-            .to_str()
-            .unwrap()
-            .to_string()
-    }
-
-    // returns the path of the name of the current generation.
-    fn generation_file_path(&self) -> String {
-        Path::new(&self.meta_dir)
-            .join("generation")
             .as_path()
             .to_str()
             .unwrap()
@@ -254,7 +273,7 @@ impl Database {
         // Generate random generation using UUID V7
         let timestamp = timestamp::Timestamp::now(NoContext);
         let generation = Uuid::new_v7(timestamp).as_simple().to_string();
-        fs::write(self.generation_file_path(), generation.clone())?;
+        fs::write(generation_file_path(&self.meta_dir), generation.clone())?;
 
         // Generate new directory.
         let wal_dir_path = self.shadow_wal_dir(&generation);
@@ -449,7 +468,7 @@ impl Database {
     // file in the meta data directory.
     // Returns error if none exists.
     fn current_generation(&self) -> Result<String> {
-        let generation_file = self.generation_file_path();
+        let generation_file = generation_file_path(&self.meta_dir);
         debug!("read generation_file: {:?}", generation_file);
         let generation = fs::read_to_string(&generation_file)?;
         debug!(

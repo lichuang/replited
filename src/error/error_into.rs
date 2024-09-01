@@ -84,6 +84,12 @@ impl From<std::num::ParseIntError> for Error {
     }
 }
 
+impl From<opendal::Error> for Error {
+    fn from(e: opendal::Error) -> Error {
+        Error::from_std_error(e)
+    }
+}
+
 impl From<tokio::sync::broadcast::error::SendError<SyncCommand>> for Error {
     fn from(e: tokio::sync::broadcast::error::SendError<SyncCommand>) -> Error {
         Error::from_std_error(e)

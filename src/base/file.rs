@@ -9,6 +9,9 @@ use crate::error::Result;
 
 static WAL_EXTENDION: &str = ".wal";
 static WAL_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([0-9a-f]{8})\.wal$").unwrap());
+static SNAPSHOT_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^([0-9a-f]{8})\.snapshot\.lz4$").unwrap());
+static SNAPSHOT_EXTENDION: &str = ".snapshot.lz4";
 
 // return base name of path
 fn path_base(path: &str) -> Result<String> {
@@ -35,6 +38,61 @@ pub fn parse_wal_path(path: &str) -> Result<u64> {
 
 pub fn format_wal_path(index: u64) -> String {
     format!("{:08X}{}", index, WAL_EXTENDION)
+}
+
+// parse snapshot file path, return snapshot index
+pub fn parse_snapshot_path(path: &str) -> Result<u64> {
+    let base = path_base(path)?;
+    let a = SNAPSHOT_REGEX
+        .captures(&base)
+        .ok_or(Error::InvalidPath(format!(
+            "invalid snapshot path {}",
+            path
+        )))?;
+    let a = a
+        .get(1)
+        .ok_or(Error::InvalidPath(format!(
+            "invalid snapshot path {}",
+            path
+        )))?
+        .as_str();
+
+    Ok(u64::from_str_radix(a, 16)?)
+}
+
+pub fn format_snapshot_path(index: u64) -> String {
+    format!("{:08X}{}", index, SNAPSHOT_EXTENDION)
+}
+
+// returns the path of a single generation.
+pub fn generations_dir(meta_dir: &str, generation: &str) -> String {
+    Path::new(meta_dir)
+        .join("generations")
+        .join(generation)
+        .as_path()
+        .to_str()
+        .unwrap()
+        .to_string()
+}
+
+// returns the path of a single generation.
+pub fn snapshots_dir(meta_dir: &str, generation: &str) -> String {
+    Path::new(&generations_dir(meta_dir, generation))
+        .join("snapshots")
+        .as_path()
+        .to_str()
+        .unwrap()
+        .to_string()
+}
+
+// returns the path of the name of the current generation.
+pub fn generation_file_path(meta_dir: &str) -> String {
+    Path::new(meta_dir)
+        .join("generation")
+        .as_path()
+        .to_str()
+        .unwrap()
+        .to_string()
 }
 
 #[cfg(test)]

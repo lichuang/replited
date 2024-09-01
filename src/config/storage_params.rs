@@ -15,6 +15,15 @@ pub enum StorageParams {
     S3(StorageS3Config),
 }
 
+impl StorageParams {
+    pub fn root(&self) -> String {
+        match self {
+            StorageParams::Fs(s) => s.root.clone(),
+            StorageParams::S3(s) => s.root.clone(),
+        }
+    }
+}
+
 /// StorageParams will be displayed by `{protocol}://{key1=value1},{key2=value2}`
 impl Display for StorageParams {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
