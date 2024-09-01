@@ -17,10 +17,12 @@ use log::debug;
 use log::error;
 use log::info;
 use rusqlite::Connection;
-use tokio::sync::broadcast;
-use tokio::sync::broadcast::Sender;
+use tokio::select;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
+use tokio::time::sleep;
 use uuid::timestamp;
 use uuid::NoContext;
 use uuid::Uuid;
@@ -66,7 +68,7 @@ pub struct Database {
     tx_connection: Option<Connection>,
 
     // for sync
-    sync_notifier: Sender<SyncCommand>,
+    sync_notifiers: Vec<Sender<SyncCommand>>,
     sync: Vec<Arc<Sync>>,
     sync_handle: Vec<JoinHandle<()>>,
 }
@@ -158,7 +160,7 @@ impl Database {
         Ok(meta_dir)
     }
 
-    fn try_create(config: DatabaseConfig) -> Result<Self> {
+    fn try_create(config: DatabaseConfig) -> Result<(Self, Receiver<SyncCommand>)> {
         info!("start database with config: {:?}\n", config);
         let connection = Connection::open(&config.path)?;
 
@@ -173,15 +175,17 @@ impl Database {
         let meta_dir = Database::init_directory(&config)?;
 
         // init replicate
-        let (sync_notifier, rx) = broadcast::channel(16);
-        let (mpsc_tx, mpsc_rx) = mpsc::channel(16);
+        let (db_notifier, db_receiver) = mpsc::channel(16);
         let mut sync = Vec::with_capacity(config.replicate.len());
         let mut sync_handle = Vec::with_capacity(config.replicate.len());
-        for replicate in &config.replicate {
-            let s = Sync::new(replicate.clone(), mpsc_tx.clone())?;
-            let h = Sync::start(s.clone(), rx.resubscribe())?;
+        let mut sync_notifiers = Vec::with_capacity(config.replicate.len());
+        for (index, replicate) in config.replicate.iter().enumerate() {
+            let (sync_notifier, sync_receiver) = mpsc::channel(16);
+            let s = Sync::new(replicate.clone(), index, db_notifier.clone())?;
+            let h = Sync::start(s.clone(), sync_receiver)?;
             sync_handle.push(h);
             sync.push(s);
+            sync_notifiers.push(sync_notifier);
         }
 
         let mut db = Self {
@@ -192,17 +196,17 @@ impl Database {
             page_size,
             shadow_wal_dir: "".to_string(),
             tx_connection: None,
-            sync_notifier,
+            sync_notifiers,
             sync,
             sync_handle,
         };
 
         db.acquire_read_lock()?;
 
-        Ok(db)
+        Ok((db, db_receiver))
     }
 
-    fn sync(&mut self) -> Result<()> {
+    async fn sync(&mut self) -> Result<()> {
         debug!("sync database: {}", self.config.path);
 
         // make sure wal file has at least one frame in it
@@ -227,8 +231,9 @@ impl Database {
 
         // notify the database has been changed
         let generation_pos = self.wal_generation_position()?;
-        self.sync_notifier
-            .send(SyncCommand::DbChanged(generation_pos))?;
+        self.sync_notifiers[0]
+            .send(SyncCommand::DbChanged(generation_pos))
+            .await?;
 
         Ok(())
     }
@@ -519,10 +524,23 @@ impl Drop for Database {
 }
 
 pub async fn run_database(config: DatabaseConfig) -> Result<()> {
-    let mut database = Database::try_create(config)?;
+    let (mut database, mut db_receiver) = Database::try_create(config)?;
+    let timeout_duration = Duration::from_secs(1);
     loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        database.sync()?;
+        // tokio::time::sleep(Duration::from_secs(1)).await;
+        // database.sync().await?;
+        select! {
+            cmd = db_receiver.recv() => {
+                //s.command(cmd).await?
+                match cmd {
+                    Some(cmd) => {}
+                    None => {}
+                }
+            }
+            _ = sleep(timeout_duration) => {
+                database.sync().await?;
+            }
+        }
     }
     Ok(())
 }

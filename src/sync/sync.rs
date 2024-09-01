@@ -5,7 +5,7 @@ use log::debug;
 use log::info;
 use opendal::Operator;
 use tokio::select;
-use tokio::sync::broadcast::Receiver;
+use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 
@@ -23,16 +23,22 @@ pub enum SyncCommand {
 }
 
 pub struct Sync {
+    index: usize,
     client: SyncClient,
-    tx: Sender<SyncCommand>,
+    db_notifier: Sender<SyncCommand>,
     position: WalGenerationPos,
 }
 
 impl Sync {
-    pub fn new(config: StorageConfig, tx: Sender<SyncCommand>) -> Result<Arc<Self>> {
+    pub fn new(
+        config: StorageConfig,
+        index: usize,
+        db_notifier: Sender<SyncCommand>,
+    ) -> Result<Arc<Self>> {
         Ok(Arc::new(Self {
+            index,
             position: WalGenerationPos::default(),
-            tx,
+            db_notifier,
             client: SyncClient::new(config)?,
         }))
     }
@@ -49,10 +55,9 @@ impl Sync {
         let mut rx = rx;
         loop {
             select! {
-                cmd = rx.recv() => match cmd {
-                        Err(e) => return Err(e.into()),
-                        Ok(cmd) => s.as_ref().command(cmd).await?
-                    }
+                cmd = rx.recv() => if let Some(cmd) = cmd {
+                    s.command(cmd).await?
+                }
             }
         }
         Ok(())
