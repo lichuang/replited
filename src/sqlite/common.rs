@@ -11,6 +11,12 @@ pub const WAL_HEADER_CHECKSUM_OFFSET: u64 = 24;
 pub const WAL_HEADER_BIG_ENDIAN_MAGIC: [u8; 4] = [0x37, 0x7f, 0x06, 0x83];
 pub const WAL_HEADER_LITTLE_ENDIAN_MAGIC: [u8; 4] = [0x37, 0x7f, 0x06, 0x82];
 
+// SQLite checkpoint modes.
+pub const CHECKPOINT_MODE_PASSIVE: &str = "PASSIVE";
+pub const CHECKPOINT_MODE_FULL: &str = "FULL";
+pub const CHECKPOINT_MODE_RESTART: &str = "RESTART";
+pub const CHECKPOINT_MODE_TRUNCATE: &str = "TRUNCATE";
+
 // implementation of sqlite check algorithm
 pub fn checksum(data: &[u8], s1: u32, s2: u32, is_big_endian: bool) -> (u32, u32) {
     let mut i = 0;

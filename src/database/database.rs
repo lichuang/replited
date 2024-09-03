@@ -16,6 +16,8 @@ use std::time::Duration;
 use log::debug;
 use log::error;
 use log::info;
+use lz4::EncoderBuilder;
+use parking_lot::Mutex;
 use rusqlite::Connection;
 use tokio::select;
 use tokio::sync::mpsc;
@@ -39,6 +41,7 @@ use crate::sqlite::align_frame;
 use crate::sqlite::read_last_checksum;
 use crate::sqlite::WALFrame;
 use crate::sqlite::WALHeader;
+use crate::sqlite::CHECKPOINT_MODE_PASSIVE;
 use crate::sqlite::WALFRAME_HEADER_SIZE;
 use crate::sync::Sync;
 use crate::sync::SyncCommand;
@@ -48,6 +51,11 @@ const GENERATION_LEN: usize = 32;
 // MaxIndex is the maximum possible WAL index.
 // If this index is reached then a new generation will be started.
 const MAX_WAL_INDEX: u64 = 0x7FFFFFFF;
+
+#[derive(Clone, Debug)]
+pub enum DbCommand {
+    Snapshot(usize),
+}
 
 pub struct Database {
     config: DatabaseConfig,
@@ -71,6 +79,9 @@ pub struct Database {
     sync_notifiers: Vec<Sender<SyncCommand>>,
     sync: Vec<Arc<Sync>>,
     sync_handle: Vec<JoinHandle<()>>,
+
+    // checkpoint mutex
+    checkpoint_mutex: Mutex<()>,
 }
 
 #[derive(Debug, Clone)]
@@ -78,6 +89,12 @@ pub struct WalGenerationPos {
     pub generation: String,
     pub wal_index: u64,
     pub offset: u64,
+}
+
+impl WalGenerationPos {
+    pub fn is_empty(&self) -> bool {
+        self.offset == 0
+    }
 }
 
 impl Default for WalGenerationPos {
@@ -160,7 +177,7 @@ impl Database {
         Ok(meta_dir)
     }
 
-    fn try_create(config: DatabaseConfig) -> Result<(Self, Receiver<SyncCommand>)> {
+    fn try_create(config: DatabaseConfig) -> Result<(Self, Receiver<DbCommand>)> {
         info!("start database with config: {:?}\n", config);
         let connection = Connection::open(&config.path)?;
 
@@ -199,6 +216,7 @@ impl Database {
             sync_notifiers,
             sync,
             sync_handle,
+            checkpoint_mutex: Mutex::new(()),
         };
 
         db.acquire_read_lock()?;
@@ -515,6 +533,99 @@ impl Database {
             wal_index,
         })
     }
+
+    fn checkpoint(&mut self, mode: &str) -> Result<()> {
+        let generation = self.current_generation()?;
+
+        self.do_checkpoint(&generation, mode)
+    }
+
+    // checkpoint performs a checkpoint on the WAL file and initializes a
+    // new shadow WAL file.
+    fn do_checkpoint(&mut self, generation: &str, mode: &str) -> Result<()> {
+        if self.checkpoint_mutex.try_lock().is_none() {
+            return Ok(());
+        }
+
+        // Execute checkpoint and immediately issue a write to the WAL to ensure
+        // a new page is written.
+        self.exec_checkpoint(mode)?;
+        Ok(())
+    }
+
+    fn exec_checkpoint(&mut self, mode: &str) -> Result<()> {
+        // Ensure the read lock has been removed before issuing a checkpoint.
+        // We defer the re-acquire to ensure it occurs even on an early return.
+        self.release_read_lock()?;
+
+        // A non-forced checkpoint is issued as "PASSIVE". This will only checkpoint
+        // if there are not pending transactions. A forced checkpoint ("RESTART")
+        // will wait for pending transactions to end & block new transactions before
+        // forcing the checkpoint and restarting the WAL.
+        //
+        // See: https://www.sqlite.org/pragma.html#pragma_wal_checkpoint
+        let sql = format!("PRAGMA wal_checkpoint({})", mode);
+
+        let ret = self.connection.execute_batch(&sql);
+
+        // Reacquire the read lock immediately after the checkpoint.
+        self.acquire_read_lock()?;
+
+        let _ = ret?;
+
+        Ok(())
+    }
+
+    pub async fn handle_db_command(&mut self, cmd: DbCommand) -> Result<()> {
+        match cmd {
+            DbCommand::Snapshot(i) => self.handle_db_snapshot_command(i).await?,
+        }
+        Ok(())
+    }
+
+    fn snapshot(&mut self) -> Result<Vec<u8>> {
+        // Issue a passive checkpoint to flush any pages to disk before snapshotting.
+        self.checkpoint(CHECKPOINT_MODE_PASSIVE)?;
+
+        // Prevent internal checkpoints during snapshot.
+        let _ = self.checkpoint_mutex.lock();
+
+        // Acquire a read lock on the database during snapshot to prevent external checkpoints.
+        self.acquire_read_lock()?;
+
+        // Obtain current position.
+        let pos = self.wal_generation_position()?;
+        if pos.is_empty() {}
+
+        // Open db file descriptor
+        let mut reader = OpenOptions::new().read(true).open(&self.config.path)?;
+        let bytes = reader.metadata()?.len() as usize;
+        let mut buffer = Vec::with_capacity(bytes);
+        let mut encoder = EncoderBuilder::new().build(&mut buffer)?;
+
+        let mut temp_buffer = vec![0; 10240];
+
+        loop {
+            let bytes_read = reader.read(&mut temp_buffer)?;
+            if bytes_read == 0 {
+                break; // EOF
+            }
+            encoder.write_all(&temp_buffer[..bytes_read])?;
+        }
+        let (compressed_data, result) = encoder.finish();
+        result?;
+
+        println!("8: {} {}", compressed_data.len(), bytes);
+        Ok(compressed_data.to_owned())
+    }
+
+    async fn handle_db_snapshot_command(&mut self, index: usize) -> Result<()> {
+        let compressed_data = self.snapshot()?;
+        self.sync_notifiers[index]
+            .send(SyncCommand::Snapshot(compressed_data))
+            .await?;
+        Ok(())
+    }
 }
 
 impl Drop for Database {
@@ -527,13 +638,12 @@ pub async fn run_database(config: DatabaseConfig) -> Result<()> {
     let (mut database, mut db_receiver) = Database::try_create(config)?;
     let timeout_duration = Duration::from_secs(1);
     loop {
-        // tokio::time::sleep(Duration::from_secs(1)).await;
-        // database.sync().await?;
         select! {
             cmd = db_receiver.recv() => {
                 //s.command(cmd).await?
+                println!("cmd: {:?}", cmd);
                 match cmd {
-                    Some(cmd) => {}
+                    Some(cmd) => database.handle_db_command(cmd).await?,
                     None => {}
                 }
             }

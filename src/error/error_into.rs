@@ -1,8 +1,10 @@
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::sync::PoisonError;
 
 use super::error_code::INTERNAL_ERROR_CODE;
+use crate::database::DbCommand;
 use crate::error::Error;
 use crate::sync::SyncCommand;
 
@@ -92,6 +94,12 @@ impl From<opendal::Error> for Error {
 
 impl From<tokio::sync::mpsc::error::SendError<SyncCommand>> for Error {
     fn from(e: tokio::sync::mpsc::error::SendError<SyncCommand>) -> Error {
+        Error::from_std_error(e)
+    }
+}
+
+impl From<tokio::sync::mpsc::error::SendError<DbCommand>> for Error {
+    fn from(e: tokio::sync::mpsc::error::SendError<DbCommand>) -> Error {
         Error::from_std_error(e)
     }
 }
