@@ -21,7 +21,13 @@ use crate::error::Result;
 #[derive(Clone, Debug)]
 pub enum SyncCommand {
     DbChanged(WalGenerationPos),
-    Snapshot(Vec<u8>),
+    Snapshot((WalGenerationPos, Vec<u8>)),
+}
+
+#[derive(Debug, PartialEq)]
+enum SyncState {
+    WaitDbChanged,
+    WaitSnapshot,
 }
 
 pub struct Sync {
@@ -29,31 +35,35 @@ pub struct Sync {
     client: SyncClient,
     db_notifier: Sender<DbCommand>,
     position: WalGenerationPos,
+    state: SyncState,
 }
 
 impl Sync {
     pub fn new(
         config: StorageConfig,
+        db: String,
         index: usize,
         db_notifier: Sender<DbCommand>,
-    ) -> Result<Arc<Self>> {
-        Ok(Arc::new(Self {
+    ) -> Result<Self> {
+        Ok(Self {
             index,
             position: WalGenerationPos::default(),
             db_notifier,
-            client: SyncClient::new(config)?,
-        }))
+            client: SyncClient::new(db, config)?,
+            state: SyncState::WaitDbChanged,
+        })
     }
 
-    pub fn start(s: Arc<Sync>, rx: Receiver<SyncCommand>) -> Result<JoinHandle<()>> {
+    pub fn start(s: Sync, rx: Receiver<SyncCommand>) -> Result<JoinHandle<()>> {
+        let mut s = s;
         let handle = tokio::spawn(async move {
-            let _ = Sync::main(s, rx).await;
+            let _ = Sync::main(&mut s, rx).await;
         });
 
         Ok(handle)
     }
 
-    pub async fn main(s: Arc<Sync>, rx: Receiver<SyncCommand>) -> Result<()> {
+    pub async fn main(s: &mut Sync, rx: Receiver<SyncCommand>) -> Result<()> {
         let mut rx = rx;
         loop {
             select! {
@@ -65,21 +75,41 @@ impl Sync {
         Ok(())
     }
 
-    async fn command(&self, cmd: SyncCommand) -> Result<()> {
+    async fn command(&mut self, cmd: SyncCommand) -> Result<()> {
         match cmd {
             SyncCommand::DbChanged(pos) => self.sync(pos).await?,
-            SyncCommand::Snapshot(compressed_data) => {
-                println!("recv snapshots: {}", compressed_data.len());
+            SyncCommand::Snapshot((pos, compressed_data)) => {
+                self.sync_snapshot(pos, compressed_data).await?;
             }
             _ => unreachable!(),
         }
         Ok(())
     }
 
-    // async fn create_snapshot(&self, generation: &str) -> Result<SnapshotInfo> {}
+    async fn sync_snapshot(
+        &mut self,
+        pos: WalGenerationPos,
+        compressed_data: Vec<u8>,
+    ) -> Result<()> {
+        debug_assert_eq!(self.state, SyncState::WaitSnapshot);
+        if pos.offset == 0 {
+            return Ok(());
+        }
 
-    async fn sync(&self, pos: WalGenerationPos) -> Result<()> {
+        let _ = self
+            .client
+            .save_snapshot(&pos.generation, pos.wal_index, compressed_data)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn sync(&mut self, pos: WalGenerationPos) -> Result<()> {
         info!("replica sync pos: {:?}\n", pos);
+
+        if self.state == SyncState::WaitSnapshot {
+            return Ok(());
+        }
 
         if pos.offset == 0 {
             return Ok(());
@@ -95,6 +125,7 @@ impl Sync {
                 self.db_notifier
                     .send(DbCommand::Snapshot(self.index))
                     .await?;
+                self.state = SyncState::WaitSnapshot;
                 return Ok(());
             }
         }

@@ -77,7 +77,7 @@ pub struct Database {
 
     // for sync
     sync_notifiers: Vec<Sender<SyncCommand>>,
-    sync: Vec<Arc<Sync>>,
+    // sync: Vec<Sync>,
     sync_handle: Vec<JoinHandle<()>>,
 
     // checkpoint mutex
@@ -193,15 +193,19 @@ impl Database {
 
         // init replicate
         let (db_notifier, db_receiver) = mpsc::channel(16);
-        let mut sync = Vec::with_capacity(config.replicate.len());
         let mut sync_handle = Vec::with_capacity(config.replicate.len());
         let mut sync_notifiers = Vec::with_capacity(config.replicate.len());
+        let db = Path::new(&config.path)
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
         for (index, replicate) in config.replicate.iter().enumerate() {
             let (sync_notifier, sync_receiver) = mpsc::channel(16);
-            let s = Sync::new(replicate.clone(), index, db_notifier.clone())?;
-            let h = Sync::start(s.clone(), sync_receiver)?;
+            let s = Sync::new(replicate.clone(), db.clone(), index, db_notifier.clone())?;
+            let h = Sync::start(s, sync_receiver)?;
             sync_handle.push(h);
-            sync.push(s);
             sync_notifiers.push(sync_notifier);
         }
 
@@ -214,7 +218,6 @@ impl Database {
             shadow_wal_dir: "".to_string(),
             tx_connection: None,
             sync_notifiers,
-            sync,
             sync_handle,
             checkpoint_mutex: Mutex::new(()),
         };
@@ -615,14 +618,14 @@ impl Database {
         let (compressed_data, result) = encoder.finish();
         result?;
 
-        println!("8: {} {}", compressed_data.len(), bytes);
         Ok(compressed_data.to_owned())
     }
 
     async fn handle_db_snapshot_command(&mut self, index: usize) -> Result<()> {
         let compressed_data = self.snapshot()?;
+        let generation_pos = self.wal_generation_position()?;
         self.sync_notifiers[index]
-            .send(SyncCommand::Snapshot(compressed_data))
+            .send(SyncCommand::Snapshot((generation_pos, compressed_data)))
             .await?;
         Ok(())
     }

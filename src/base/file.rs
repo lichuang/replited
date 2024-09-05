@@ -85,6 +85,17 @@ pub fn snapshots_dir(meta_dir: &str, generation: &str) -> String {
         .to_string()
 }
 
+pub fn snapshot_file(db: &str, generation: &str, index: u64) -> String {
+    Path::new(db)
+        .join(generation)
+        .join("snapshots")
+        .join(format_snapshot_path(index))
+        .as_path()
+        .to_str()
+        .unwrap()
+        .to_string()
+}
+
 // returns the path of the name of the current generation.
 pub fn generation_file_path(meta_dir: &str) -> String {
     Path::new(meta_dir)
