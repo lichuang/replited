@@ -34,8 +34,6 @@ macro_rules! build_error {
 build_error! {
     Ok(0),
 
-
-
     // config file error
     EmptyConfigFile(1),
     InvalidConfig(2),
@@ -76,6 +74,8 @@ build_error! {
     SqliteWalError(121),
     SqliteWalHeaderError(122),
     SqliteWalFrameHeaderError(123),
+    NoSnapshotError(124),
+    NoWalSegmentError(125),
 
     // other error
     PanicError(140),

@@ -12,10 +12,12 @@ use tokio::task::JoinHandle;
 use super::init_operator;
 use super::sync_client::SnapshotInfo;
 use super::sync_client::SyncClient;
+use super::sync_client::WalSegmentInfo;
 use crate::config::StorageConfig;
 use crate::config::StorageParams;
 use crate::database::DbCommand;
 use crate::database::WalGenerationPos;
+use crate::error::Error;
 use crate::error::Result;
 
 #[derive(Clone, Debug)]
@@ -75,6 +77,49 @@ impl Sync {
         Ok(())
     }
 
+    // returns the last snapshot in a generation.
+    async fn max_snapshot(&self, generation: &str) -> Result<SnapshotInfo> {
+        let snapshots = self.client.snapshots(&generation).await?;
+        if snapshots.is_empty() {
+            return Err(Error::NoSnapshotError(generation));
+        }
+        let mut max_index = 0;
+        let mut max_snapshot_index = 0;
+        for (i, snapshot) in snapshots.iter().enumerate() {
+            if snapshot.index > max_snapshot_index {
+                max_snapshot_index = snapshot.index;
+                max_index = i;
+            }
+        }
+
+        Ok(snapshots[max_index].clone())
+    }
+
+    // returns the highest WAL segment in a generation.
+    async fn max_wal_segment(&self, generation: &str) -> Result<WalSegmentInfo> {
+        let wal_segments = self.client.wal_segments(&generation).await?;
+        if wal_segments.is_empty() {
+            return Err(Error::NoWalSegmentError(generation));
+        }
+        let mut max_index = 0;
+        let mut max_wg_index = 0;
+        for (i, wg) in wal_segments.iter().enumerate() {
+            if wg.index > max_wg_index {
+                max_wg_index = wg.index;
+                max_index = i;
+            }
+        }
+
+        Ok(wal_segments[max_index].clone())
+    }
+
+    async fn calculate_generation_position(&self, generation: &str) -> Result<()> {
+        // Fetch last snapshot. Return error if no snapshots exist.
+        let snapshot = self.max_snapshot(generation).await?;
+
+        Ok(())
+    }
+
     async fn command(&mut self, cmd: SyncCommand) -> Result<()> {
         match cmd {
             SyncCommand::DbChanged(pos) => self.sync(pos).await?,
@@ -101,7 +146,9 @@ impl Sync {
             .save_snapshot(&pos.generation, pos.wal_index, compressed_data)
             .await?;
 
-        Ok(())
+        // change state from WaitSnapshot to WaitDbChanged
+        self.state = SyncState::WaitDbChanged;
+        self.sync(pos).await
     }
 
     async fn sync(&mut self, pos: WalGenerationPos) -> Result<()> {
@@ -118,8 +165,13 @@ impl Sync {
         // Create a new snapshot and update the current replica position if
         // the generation on the database has changed.
         let generation = pos.generation.clone();
+        println!(
+            "generation: {}, self generation: {}",
+            generation, self.position.generation
+        );
         if generation != self.position.generation {
             let snapshots = self.client.snapshots(&generation).await?;
+            println!("snapshots: {:?}", snapshots.len());
             if snapshots.len() == 0 {
                 // Create snapshot if no snapshots exist for generation.
                 self.db_notifier
