@@ -75,7 +75,7 @@ build_error! {
     SqliteWalHeaderError(122),
     SqliteWalFrameHeaderError(123),
     NoSnapshotError(124),
-    NoWalSegmentError(125),
+    NoWalsegmentError(125),
 
     // other error
     PanicError(140),

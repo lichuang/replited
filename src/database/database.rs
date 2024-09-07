@@ -87,7 +87,7 @@ pub struct Database {
 #[derive(Debug, Clone)]
 pub struct WalGenerationPos {
     pub generation: String,
-    pub wal_index: u64,
+    pub index: u64,
     pub offset: u64,
 }
 
@@ -101,7 +101,7 @@ impl Default for WalGenerationPos {
     fn default() -> Self {
         Self {
             generation: "".to_string(),
-            wal_index: 0,
+            index: 0,
             offset: 0,
         }
     }
@@ -110,7 +110,7 @@ impl Default for WalGenerationPos {
 #[derive(Debug)]
 struct SyncInfo {
     pub generation: String,
-    pub wal_index: u64,
+    pub index: u64,
 }
 
 impl Database {
@@ -262,15 +262,15 @@ impl Database {
     pub fn wal_generation_position(&self) -> Result<WalGenerationPos> {
         let generation = self.current_generation()?;
 
-        let (wal_index, _total_size) = self.current_shadow_wal_index(&generation)?;
+        let (index, _total_size) = self.current_shadow_index(&generation)?;
 
-        let shadow_wal_file = self.shadow_wal_file(&generation, wal_index);
+        let shadow_wal_file = self.shadow_wal_file(&generation, index);
 
         let file_metadata = fs::metadata(&shadow_wal_file)?;
 
         Ok(WalGenerationPos {
             generation,
-            wal_index,
+            index,
             offset: align_frame(self.page_size, file_metadata.size()),
         })
     }
@@ -455,8 +455,8 @@ impl Database {
         Ok(())
     }
 
-    // current_shadow_wal_index returns the current WAL index & total size.
-    fn current_shadow_wal_index(&self, generation: &str) -> Result<(u64, u64)> {
+    // current_shadow_index returns the current WAL index & total size.
+    fn current_shadow_index(&self, generation: &str) -> Result<(u64, u64)> {
         let wal_dir_path = self.shadow_wal_dir(generation);
         let entries = fs::read_dir(&wal_dir_path)?;
 
@@ -523,18 +523,15 @@ impl Database {
         let wal_size = align_frame(self.page_size, wal_file.len());
 
         // get current shadow wal index
-        let (wal_index, _total_size) = self.current_shadow_wal_index(&generation)?;
-        if wal_index > MAX_WAL_INDEX {
+        let (index, _total_size) = self.current_shadow_index(&generation)?;
+        if index > MAX_WAL_INDEX {
             return Err(Error::ExceedMaxWalIndex("exceed max wal index"));
         }
-        let shadow_wal_file = self.shadow_wal_file(&generation, wal_index);
+        let shadow_wal_file = self.shadow_wal_file(&generation, index);
 
         // Determine shadow WAL current size.
 
-        Ok(SyncInfo {
-            generation,
-            wal_index,
-        })
+        Ok(SyncInfo { generation, index })
     }
 
     fn checkpoint(&mut self, mode: &str) -> Result<()> {

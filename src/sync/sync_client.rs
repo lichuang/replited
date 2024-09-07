@@ -10,6 +10,7 @@ use crate::base::parse_wal_path;
 use crate::base::parse_wal_segment_path;
 use crate::base::snapshot_file;
 use crate::base::snapshots_dir;
+use crate::base::walsegment_file;
 use crate::base::walsegments_dir;
 use crate::config::StorageConfig;
 use crate::config::StorageParams;
@@ -104,5 +105,15 @@ impl SyncClient {
         }
 
         Ok(wal_segments)
+    }
+
+    pub async fn read_wal_segment(&self, info: &WalSegmentInfo) -> Result<Vec<u8>> {
+        let generation = &info.generation;
+        let index = info.index;
+        let offset = info.offset;
+
+        let wal_segment_file = walsegment_file(&self.db, generation, index, offset);
+        let bytes = self.operator.read(&wal_segment_file).await?.to_vec();
+        Ok(bytes)
     }
 }

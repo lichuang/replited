@@ -1,8 +1,10 @@
 use std::borrow::BorrowMut;
+use std::io::Read;
 use std::sync::Arc;
 
 use log::debug;
 use log::info;
+use lz4::Decoder;
 use opendal::Operator;
 use tokio::select;
 use tokio::sync::mpsc::Receiver;
@@ -99,7 +101,7 @@ impl Sync {
     async fn max_wal_segment(&self, generation: &str) -> Result<WalSegmentInfo> {
         let wal_segments = self.client.wal_segments(&generation).await?;
         if wal_segments.is_empty() {
-            return Err(Error::NoWalSegmentError(generation));
+            return Err(Error::NoWalsegmentError(generation));
         }
         let mut max_index = 0;
         let mut max_wg_index = 0;
@@ -113,11 +115,46 @@ impl Sync {
         Ok(wal_segments[max_index].clone())
     }
 
-    async fn calculate_generation_position(&self, generation: &str) -> Result<()> {
+    async fn calculate_generation_position(&self, generation: &str) -> Result<WalGenerationPos> {
         // Fetch last snapshot. Return error if no snapshots exist.
         let snapshot = self.max_snapshot(generation).await?;
 
-        Ok(())
+        // Determine last WAL segment available.
+        let segment = self.max_wal_segment(generation).await;
+        let segment = match segment {
+            Err(e) => {
+                if e.code() == Error::NO_WALSEGMENT_ERROR {
+                    // Use snapshot if none exist.
+                    return Ok(WalGenerationPos {
+                        generation: generation.to_string(),
+                        index: snapshot.index,
+                        offset: 0,
+                    });
+                } else {
+                    return Err(e);
+                }
+            }
+            Ok(segment) => segment,
+        };
+
+        let compressed_data = self.client.read_wal_segment(&segment).await?;
+        let compressed_data = compressed_data.as_slice();
+        let mut decoder = Decoder::new(compressed_data)?;
+        let mut decompressed_data = Vec::new();
+        let mut buffer = vec![0; 102400];
+
+        loop {
+            let bytes_read = decoder.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break; // EOF
+            }
+            decompressed_data.extend_from_slice(&buffer[..bytes_read]);
+        }
+        Ok(WalGenerationPos {
+            generation: segment.generation.clone(),
+            index: segment.index,
+            offset: segment.offset + decompressed_data.len() as u64,
+        })
     }
 
     async fn command(&mut self, cmd: SyncCommand) -> Result<()> {
@@ -143,7 +180,7 @@ impl Sync {
 
         let _ = self
             .client
-            .save_snapshot(&pos.generation, pos.wal_index, compressed_data)
+            .save_snapshot(&pos.generation, pos.index, compressed_data)
             .await?;
 
         // change state from WaitSnapshot to WaitDbChanged

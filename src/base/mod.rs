@@ -11,6 +11,7 @@ pub use file::parse_wal_path;
 pub use file::parse_wal_segment_path;
 pub use file::snapshot_file;
 pub use file::snapshots_dir;
+pub use file::walsegment_file;
 pub use file::walsegments_dir;
 pub use numerical::is_power_of_two;
 pub use string::format_integer_with_leading_zeros;

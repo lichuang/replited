@@ -9,6 +9,7 @@ use crate::error::Result;
 
 static WAL_EXTENDION: &str = ".wal";
 static WAL_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([0-9a-f]{8})\.wal$").unwrap());
+static WAL_SEGMENT_EXTENDION: &str = ".wal.lz4";
 static WAL_SEGMENT_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^([0-9a-f]{8})(?:_([0-9a-f]{8}))\.wal\.lz4$").unwrap());
 static SNAPSHOT_REGEX: LazyLock<Regex> =
@@ -132,6 +133,20 @@ pub fn walsegments_dir(db: &str, generation: &str) -> String {
         .to_str()
         .unwrap()
         .to_string()
+}
+
+pub fn walsegment_file(db: &str, generation: &str, index: u64, offset: u64) -> String {
+    Path::new(&generations_dir(db, generation))
+        .join("wal")
+        .join(format_walsegment_path(index, offset))
+        .as_path()
+        .to_str()
+        .unwrap()
+        .to_string()
+}
+
+pub fn format_walsegment_path(index: u64, offset: u64) -> String {
+    format!("{:08X}_{:08X}{}", index, offset, WAL_SEGMENT_EXTENDION)
 }
 
 // returns the path of the name of the current generation.
