@@ -161,9 +161,13 @@ pub fn generation_file_path(meta_dir: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::path_base;
+    use crate::base::file::format_walsegment_path;
     use crate::base::file::parse_wal_path;
+    use crate::base::file::path_base;
+    use crate::base::format_snapshot_path;
     use crate::base::format_wal_path;
+    use crate::base::parse_snapshot_path;
+    use crate::base::parse_wal_segment_path;
     use crate::error::Error;
     use crate::error::Result;
 
@@ -195,6 +199,37 @@ mod tests {
         let path = format!("a/b/{}", format_wal_path(19));
         let index = parse_wal_path(&path)?;
         assert_eq!(index, 19);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_snapshot_path() -> Result<()> {
+        let path = "a/b/c/00000019.snapshot.lz4";
+        let index = parse_snapshot_path(path)?;
+        assert_eq!(index, 25);
+
+        let path = "a/b/c/0000019.snapshot.lz4";
+        let index = parse_snapshot_path(path);
+        assert!(index.is_err());
+
+        let path = format!("a/b/{}", format_snapshot_path(19));
+        let index = parse_snapshot_path(&path)?;
+        assert_eq!(index, 19);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_walsegment_path() -> Result<()> {
+        let path = "a/b/c/00000019_00000020.wal.lz4";
+        let (index, offset) = parse_wal_segment_path(path)?;
+        assert_eq!(index, 25);
+        assert_eq!(offset, 32);
+
+        let path = format!("a/b/{}", format_walsegment_path(19, 20));
+        let (index, offset) = parse_wal_segment_path(&path)?;
+        assert_eq!(index, 19);
+        assert_eq!(offset, 20);
+
         Ok(())
     }
 }

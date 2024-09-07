@@ -1,5 +1,3 @@
-use std::fmt::Write;
-
 /// Mask a string by "******", but keep `unmask_len` of suffix.
 #[inline]
 pub fn mask_string(s: &str, unmask_len: usize) -> String {

@@ -1,22 +1,14 @@
-use std::borrow::BorrowMut;
-use std::io::Read;
-use std::sync::Arc;
-
-use log::debug;
 use log::info;
-use lz4::Decoder;
-use opendal::Operator;
 use tokio::select;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 
-use super::init_operator;
 use super::sync_client::SnapshotInfo;
 use super::sync_client::SyncClient;
 use super::sync_client::WalSegmentInfo;
+use crate::base::decompressed_data;
 use crate::config::StorageConfig;
-use crate::config::StorageParams;
 use crate::database::DbCommand;
 use crate::database::WalGenerationPos;
 use crate::error::Error;
@@ -76,7 +68,6 @@ impl Sync {
                 }
             }
         }
-        Ok(())
     }
 
     // returns the last snapshot in a generation.
@@ -138,18 +129,8 @@ impl Sync {
         };
 
         let compressed_data = self.client.read_wal_segment(&segment).await?;
-        let compressed_data = compressed_data.as_slice();
-        let mut decoder = Decoder::new(compressed_data)?;
-        let mut decompressed_data = Vec::new();
-        let mut buffer = vec![0; 102400];
+        let decompressed_data = decompressed_data(compressed_data)?;
 
-        loop {
-            let bytes_read = decoder.read(&mut buffer)?;
-            if bytes_read == 0 {
-                break; // EOF
-            }
-            decompressed_data.extend_from_slice(&buffer[..bytes_read]);
-        }
         Ok(WalGenerationPos {
             generation: segment.generation.clone(),
             index: segment.index,
@@ -163,7 +144,6 @@ impl Sync {
             SyncCommand::Snapshot((pos, compressed_data)) => {
                 self.sync_snapshot(pos, compressed_data).await?;
             }
-            _ => unreachable!(),
         }
         Ok(())
     }

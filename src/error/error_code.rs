@@ -2,8 +2,6 @@
 
 use crate::error::Error;
 
-pub const INTERNAL_ERROR_CODE: u32 = 11;
-
 macro_rules! build_error {
     ($($(#[$meta:meta])* $body:ident($code:expr)),*$(,)*) => {
         impl Error {
@@ -54,7 +52,7 @@ build_error! {
     /// This error should never be used to for error checking. An error
     /// that returns as internal error could be assigned a separate error
     /// code at anytime.
-    Internal(INTERNAL_ERROR_CODE),
+    Internal(11),
 
     // storage error
     StorageNotFound(51),

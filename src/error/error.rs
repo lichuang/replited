@@ -2,8 +2,6 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use super::error_code::INTERNAL_ERROR_CODE;
-
 #[derive(thiserror::Error)]
 pub struct Error {
     code: u32,
@@ -66,7 +64,7 @@ impl Error {
     /// All std error will be converted to InternalError
     pub fn from_std_error<T: std::error::Error>(error: T) -> Self {
         Error {
-            code: INTERNAL_ERROR_CODE,
+            code: Error::INTERNAL,
             name: String::from("FromStdError"),
             display_text: error.to_string(),
             detail: String::new(),
@@ -76,7 +74,7 @@ impl Error {
 
     pub fn from_string(error: String) -> Self {
         Error {
-            code: INTERNAL_ERROR_CODE,
+            code: Error::INTERNAL,
             name: String::from("Internal"),
             display_text: error,
             detail: String::new(),
@@ -86,7 +84,7 @@ impl Error {
 
     pub fn from_string_no_backtrace(error: String) -> Self {
         Error {
-            code: INTERNAL_ERROR_CODE,
+            code: Error::INTERNAL,
             name: String::from("Internal"),
             display_text: error,
             detail: String::new(),

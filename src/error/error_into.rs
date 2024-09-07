@@ -1,9 +1,7 @@
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::sync::PoisonError;
 
-use super::error_code::INTERNAL_ERROR_CODE;
 use crate::database::DbCommand;
 use crate::error::Error;
 use crate::sync::SyncCommand;
@@ -44,7 +42,7 @@ impl From<log4rs::config::runtime::ConfigErrors> for Error {
 impl From<anyhow::Error> for Error {
     fn from(error: anyhow::Error) -> Self {
         Error::create(
-            INTERNAL_ERROR_CODE,
+            Error::INTERNAL,
             "anyhow",
             format!("{}, source: {:?}", error, error.source()),
             String::new(),

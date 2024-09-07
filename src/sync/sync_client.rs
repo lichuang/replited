@@ -1,19 +1,14 @@
-use std::path::Path;
-
-use log::info;
 use opendal::Metakey;
 use opendal::Operator;
 
 use super::init_operator;
 use crate::base::parse_snapshot_path;
-use crate::base::parse_wal_path;
 use crate::base::parse_wal_segment_path;
 use crate::base::snapshot_file;
 use crate::base::snapshots_dir;
 use crate::base::walsegment_file;
 use crate::base::walsegments_dir;
 use crate::config::StorageConfig;
-use crate::config::StorageParams;
 use crate::error::Result;
 
 pub struct SyncClient {

@@ -1,6 +1,5 @@
 use std::fs;
 use std::fs::File;
-use std::fs::FileType;
 use std::fs::OpenOptions;
 use std::io::Read;
 use std::io::Seek;
@@ -10,13 +9,11 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use log::debug;
 use log::error;
 use log::info;
-use lz4::EncoderBuilder;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use tokio::select;
@@ -29,7 +26,7 @@ use uuid::timestamp;
 use uuid::NoContext;
 use uuid::Uuid;
 
-use crate::base::format_integer_with_leading_zeros;
+use crate::base::compress_file;
 use crate::base::format_wal_path;
 use crate::base::generation_file_path;
 use crate::base::generations_dir;
@@ -597,23 +594,8 @@ impl Database {
         let pos = self.wal_generation_position()?;
         if pos.is_empty() {}
 
-        // Open db file descriptor
-        let mut reader = OpenOptions::new().read(true).open(&self.config.path)?;
-        let bytes = reader.metadata()?.len() as usize;
-        let mut buffer = Vec::with_capacity(bytes);
-        let mut encoder = EncoderBuilder::new().build(&mut buffer)?;
-
-        let mut temp_buffer = vec![0; 10240];
-
-        loop {
-            let bytes_read = reader.read(&mut temp_buffer)?;
-            if bytes_read == 0 {
-                break; // EOF
-            }
-            encoder.write_all(&temp_buffer[..bytes_read])?;
-        }
-        let (compressed_data, result) = encoder.finish();
-        result?;
+        // compress db file
+        let compressed_data = compress_file(&self.config.path)?;
 
         Ok(compressed_data.to_owned())
     }
@@ -652,5 +634,4 @@ pub async fn run_database(config: DatabaseConfig) -> Result<()> {
             }
         }
     }
-    Ok(())
 }
