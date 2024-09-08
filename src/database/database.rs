@@ -31,6 +31,8 @@ use crate::base::format_wal_path;
 use crate::base::generation_file_path;
 use crate::base::generations_dir;
 use crate::base::parse_wal_path;
+use crate::base::shadow_wal_dir;
+use crate::base::shadow_wal_file;
 use crate::config::DatabaseConfig;
 use crate::error::Error;
 use crate::error::Result;
@@ -54,14 +56,19 @@ pub enum DbCommand {
     Snapshot(usize),
 }
 
+#[derive(Debug, Clone)]
+pub struct DatabaseInfo {
+    // Path to the database metadata.
+    pub meta_dir: String,
+
+    pub page_size: u32,
+}
+
 pub struct Database {
     config: DatabaseConfig,
 
     // Path to the database metadata.
     meta_dir: String,
-
-    // shadow wal directory, empty when there is no shadow wal file
-    shadow_wal_dir: String,
 
     // full wal file name of db file
     wal_file: String,
@@ -192,6 +199,10 @@ impl Database {
         let (db_notifier, db_receiver) = mpsc::channel(16);
         let mut sync_handle = Vec::with_capacity(config.replicate.len());
         let mut sync_notifiers = Vec::with_capacity(config.replicate.len());
+        let info = DatabaseInfo {
+            meta_dir: meta_dir.clone(),
+            page_size: page_size,
+        };
         let db = Path::new(&config.path)
             .file_name()
             .unwrap()
@@ -200,7 +211,13 @@ impl Database {
             .to_string();
         for (index, replicate) in config.replicate.iter().enumerate() {
             let (sync_notifier, sync_receiver) = mpsc::channel(16);
-            let s = Sync::new(replicate.clone(), db.clone(), index, db_notifier.clone())?;
+            let s = Sync::new(
+                replicate.clone(),
+                db.clone(),
+                index,
+                db_notifier.clone(),
+                info.clone(),
+            )?;
             let h = Sync::start(s, sync_receiver)?;
             sync_handle.push(h);
             sync_notifiers.push(sync_notifier);
@@ -212,7 +229,6 @@ impl Database {
             meta_dir,
             wal_file,
             page_size,
-            shadow_wal_dir: "".to_string(),
             tx_connection: None,
             sync_notifiers,
             sync_handle,
@@ -274,22 +290,12 @@ impl Database {
 
     // returns the path of a single shadow WAL file.
     fn shadow_wal_file(&self, generation: &str, index: u64) -> String {
-        Path::new(&self.shadow_wal_dir(generation))
-            .join(format_wal_path(index))
-            .as_path()
-            .to_str()
-            .unwrap()
-            .to_string()
+        shadow_wal_file(&self.meta_dir, generation, index)
     }
 
     // returns the path of the shadow wal directory
     fn shadow_wal_dir(&self, generation: &str) -> String {
-        Path::new(&generations_dir(&self.meta_dir, generation))
-            .join("wal")
-            .as_path()
-            .to_str()
-            .unwrap()
-            .to_string()
+        shadow_wal_dir(&self.meta_dir, generation)
     }
 
     fn create_generation(&mut self) -> Result<()> {
@@ -303,7 +309,6 @@ impl Database {
         debug!("create new wal dir {:?}", wal_dir_path);
         fs::create_dir_all(&wal_dir_path)?;
 
-        self.shadow_wal_dir = wal_dir_path;
         // init first(index 0) shadow wal file
         self.init_shadow_wal_file(self.shadow_wal_file(&generation, 0))?;
         Ok(())
@@ -390,7 +395,7 @@ impl Database {
             let wal_frame = match wal_frame {
                 Ok(wal_frame) => wal_frame,
                 Err(e) => {
-                    if e.code() == Error::UNEXPECTED_E_O_F_ERROR {
+                    if e.code() == Error::UNEXPECTED_EOF_ERROR {
                         debug!("copy_to_shadow_wal end of file at offset: {}", offset);
                         break;
                     } else {

@@ -66,7 +66,7 @@ impl From<std::io::Error> for Error {
         match error.kind() {
             ErrorKind::NotFound => Error::StorageNotFound(msg),
             ErrorKind::PermissionDenied => Error::StoragePermissionDenied(msg),
-            ErrorKind::UnexpectedEof => Error::UnexpectedEOFError(msg),
+            ErrorKind::UnexpectedEof => Error::UnexpectedEofError(msg),
             _ => Error::StorageOther(msg),
         }
     }

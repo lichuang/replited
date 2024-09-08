@@ -77,5 +77,5 @@ build_error! {
 
     // other error
     PanicError(140),
-    UnexpectedEOFError(141),
+    UnexpectedEofError(141),
 }

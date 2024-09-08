@@ -59,7 +59,7 @@ pub fn read_last_checksum(file: &mut File, page_size: u32) -> Result<(u32, u32)>
     let mut buf = [0u8; 8];
     let n = file.read_at(&mut buf, offset)?;
     if n != buf.len() {
-        return Err(Error::UnexpectedEOFError(
+        return Err(Error::UnexpectedEofError(
             "UnexpectedEOFError when read last checksum".to_string(),
         ));
     }

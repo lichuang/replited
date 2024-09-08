@@ -9,6 +9,7 @@ use crate::base::snapshots_dir;
 use crate::base::walsegment_file;
 use crate::base::walsegments_dir;
 use crate::config::StorageConfig;
+use crate::database::WalGenerationPos;
 use crate::error::Result;
 
 pub struct SyncClient {
@@ -41,17 +42,30 @@ impl SyncClient {
         })
     }
 
-    pub async fn save_snapshot(
+    pub async fn write_wal_segment(
         &self,
-        generation: &str,
-        index: u64,
+        pos: &WalGenerationPos,
+        compressed_data: Vec<u8>,
+    ) -> Result<()> {
+        let wal_segment_file = walsegment_file(&self.db, &pos.generation, pos.index, pos.offset);
+
+        self.operator
+            .write(&wal_segment_file, compressed_data)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn write_snapshot(
+        &self,
+        pos: &WalGenerationPos,
         compressed_data: Vec<u8>,
     ) -> Result<SnapshotInfo> {
-        let snapshot_file = snapshot_file(&self.db, generation, index);
+        let snapshot_file = snapshot_file(&self.db, &pos.generation, pos.index);
 
         let snapshot_info = SnapshotInfo {
-            generation: generation.to_string(),
-            index,
+            generation: pos.generation.to_string(),
+            index: pos.index,
             size: compressed_data.len() as u64,
         };
         self.operator.write(&snapshot_file, compressed_data).await?;

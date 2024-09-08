@@ -7,12 +7,18 @@ use tokio::task::JoinHandle;
 use super::sync_client::SnapshotInfo;
 use super::sync_client::SyncClient;
 use super::sync_client::WalSegmentInfo;
+use super::ShadowWalReader;
+use crate::base::compress_buffer;
 use crate::base::decompressed_data;
 use crate::config::StorageConfig;
+use crate::database::DatabaseInfo;
 use crate::database::DbCommand;
 use crate::database::WalGenerationPos;
 use crate::error::Error;
 use crate::error::Result;
+use crate::sqlite::align_frame;
+use crate::sqlite::WALFrame;
+use crate::sqlite::WALHeader;
 
 #[derive(Clone, Debug)]
 pub enum SyncCommand {
@@ -32,6 +38,7 @@ pub struct Sync {
     db_notifier: Sender<DbCommand>,
     position: WalGenerationPos,
     state: SyncState,
+    info: DatabaseInfo,
 }
 
 impl Sync {
@@ -40,6 +47,7 @@ impl Sync {
         db: String,
         index: usize,
         db_notifier: Sender<DbCommand>,
+        info: DatabaseInfo,
     ) -> Result<Self> {
         Ok(Self {
             index,
@@ -47,6 +55,7 @@ impl Sync {
             db_notifier,
             client: SyncClient::new(db, config)?,
             state: SyncState::WaitDbChanged,
+            info,
         })
     }
 
@@ -138,6 +147,49 @@ impl Sync {
         })
     }
 
+    async fn sync_wal(&mut self) -> Result<()> {
+        let mut reader = ShadowWalReader::try_create(self.position.clone(), &self.info)?;
+
+        // Obtain initial position from shadow reader.
+        // It may have moved to the next index if previous position was at the end.
+        let init_pos = reader.pos.clone();
+        let mut data = Vec::new();
+
+        // Copy header if at offset zero.
+        let mut salt = 0;
+        if init_pos.offset == 0 {
+            let wal_header = WALHeader::read_from(&mut reader.file)?;
+            salt = wal_header.salt;
+            data.extend_from_slice(&wal_header.data);
+        }
+
+        // Copy frames.
+        loop {
+            if reader.left == 0 {
+                break;
+            }
+
+            let pos = reader.pos();
+            debug_assert_eq!(pos.offset, align_frame(self.info.page_size, pos.offset));
+
+            let wal_frame =
+                WALFrame::read_without_checksum(&mut reader.file, self.info.page_size, salt)?;
+            salt = wal_frame.salt;
+
+            data.extend_from_slice(&wal_frame.data);
+        }
+        let compressed_data = compress_buffer(&data)?;
+
+        let _ = self
+            .client
+            .write_wal_segment(&init_pos, compressed_data)
+            .await?;
+
+        // update position
+        self.position = reader.pos();
+        Ok(())
+    }
+
     async fn command(&mut self, cmd: SyncCommand) -> Result<()> {
         match cmd {
             SyncCommand::DbChanged(pos) => self.sync(pos).await?,
@@ -158,10 +210,7 @@ impl Sync {
             return Ok(());
         }
 
-        let _ = self
-            .client
-            .save_snapshot(&pos.generation, pos.index, compressed_data)
-            .await?;
+        let _ = self.client.write_snapshot(&pos, compressed_data).await?;
 
         // change state from WaitSnapshot to WaitDbChanged
         self.state = SyncState::WaitDbChanged;
@@ -182,13 +231,8 @@ impl Sync {
         // Create a new snapshot and update the current replica position if
         // the generation on the database has changed.
         let generation = pos.generation.clone();
-        println!(
-            "generation: {}, self generation: {}",
-            generation, self.position.generation
-        );
         if generation != self.position.generation {
             let snapshots = self.client.snapshots(&generation).await?;
-            println!("snapshots: {:?}", snapshots.len());
             if snapshots.len() == 0 {
                 // Create snapshot if no snapshots exist for generation.
                 self.db_notifier
@@ -197,6 +241,9 @@ impl Sync {
                 self.state = SyncState::WaitSnapshot;
                 return Ok(());
             }
+
+            let pos = self.calculate_generation_position(&generation).await?;
+            self.position = pos;
         }
 
         Ok(())

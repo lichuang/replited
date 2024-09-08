@@ -12,9 +12,43 @@ pub struct WALFrame {
     pub data: Vec<u8>,
     pub page_num: u32,
     pub db_size: u32,
+    pub salt: u64,
 }
 
 impl WALFrame {
+    pub fn read_without_checksum(file: &mut File, page_size: u32, psalt: u64) -> Result<WALFrame> {
+        let metadata = file.metadata()?;
+        if metadata.len() < WALFRAME_HEADER_SIZE as u64 {
+            return Err(Error::SqliteWalFrameHeaderError("Invalid WAL frame header"));
+        }
+
+        let mut data: Vec<u8> = vec![0u8; WALFRAME_HEADER_SIZE + page_size as usize];
+        // let mut buf = data.as_mut_slice();
+        file.read_exact(&mut data)?;
+
+        // read page num
+        let page_num = &data[0..4];
+        let page_num = u32::from_be_bytes(page_num.try_into()?);
+
+        let db_size = &data[4..8];
+        let db_size = u32::from_be_bytes(db_size.try_into()?);
+
+        let salt = &data[8..16];
+        let salt = u64::from_be_bytes(salt.try_into()?);
+        if psalt != 0 && salt != psalt {
+            return Err(Error::SqliteWalFrameHeaderError(
+                "Invalid wal frame header checksum",
+            ));
+        }
+
+        Ok(WALFrame {
+            data,
+            page_num,
+            db_size,
+            salt,
+        })
+    }
+
     pub fn read(
         file: &mut File,
         ck1: u32,
@@ -38,11 +72,9 @@ impl WALFrame {
         let db_size = &data[4..8];
         let db_size = u32::from_be_bytes(db_size.try_into()?);
 
-        let salt1 = &data[8..12];
-        let salt1 = u32::from_be_bytes(salt1.try_into()?);
-        let salt2 = &data[12..16];
-        let salt2 = u32::from_be_bytes(salt2.try_into()?);
-        if salt1 != wal_header.salt1 || salt2 != wal_header.salt2 {
+        let salt = &data[8..16];
+        let salt = u64::from_be_bytes(salt.try_into()?);
+        if salt != wal_header.salt {
             return Err(Error::SqliteWalFrameHeaderError(
                 "Invalid wal frame header checksum",
             ));
@@ -69,6 +101,7 @@ impl WALFrame {
             data,
             page_num,
             db_size,
+            salt,
         })
     }
 }

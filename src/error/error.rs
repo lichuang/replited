@@ -72,6 +72,16 @@ impl Error {
         }
     }
 
+    pub fn from_error_code(code: u32, display_text: impl ToString) -> Self {
+        Error {
+            code,
+            name: String::new(),
+            display_text: display_text.to_string(),
+            detail: String::new(),
+            cause: None,
+        }
+    }
+
     pub fn from_string(error: String) -> Self {
         Error {
             code: Error::INTERNAL,

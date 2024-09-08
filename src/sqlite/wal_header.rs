@@ -12,17 +12,14 @@ use crate::sqlite::WAL_HEADER_SIZE;
 #[derive(Clone, Debug)]
 pub struct WALHeader {
     pub data: Vec<u8>,
-    pub salt1: u32,
-    pub salt2: u32,
+    pub salt: u64,
     pub page_size: u32,
     pub is_big_endian: bool,
 }
 
 impl WALHeader {
     // see: https://www.sqlite.org/fileformat2.html#walformat
-    pub fn read(file_path: &str) -> Result<WALHeader> {
-        let mut file = File::open(file_path)?;
-
+    pub fn read_from(file: &mut File) -> Result<WALHeader> {
         if file.metadata()?.len() < WAL_HEADER_SIZE as u64 {
             return Err(Error::SqliteWalHeaderError("Invalid WAL file"));
         }
@@ -59,17 +56,20 @@ impl WALHeader {
             return Err(Error::SqliteWalHeaderError("Invalid wal header checksum"));
         }
 
-        let s1 = &data[16..20];
-        let salt1 = u32::from_be_bytes(s1.try_into()?);
-        let s2 = &data[20..24];
-        let salt2 = u32::from_be_bytes(s2.try_into()?);
+        let s = &data[16..24];
+        let salt = u64::from_be_bytes(s.try_into()?);
 
         Ok(WALHeader {
             data,
-            salt1,
-            salt2,
+            salt,
             page_size,
             is_big_endian,
         })
+    }
+
+    pub fn read(file_path: &str) -> Result<WALHeader> {
+        let mut file = File::open(file_path)?;
+
+        Self::read_from(&mut file)
     }
 }

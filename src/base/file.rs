@@ -159,6 +159,24 @@ pub fn generation_file_path(meta_dir: &str) -> String {
         .to_string()
 }
 
+pub fn shadow_wal_dir(meta_dir: &str, generation: &str) -> String {
+    Path::new(&generations_dir(meta_dir, generation))
+        .join("wal")
+        .as_path()
+        .to_str()
+        .unwrap()
+        .to_string()
+}
+
+pub fn shadow_wal_file(meta_dir: &str, generation: &str, index: u64) -> String {
+    Path::new(&shadow_wal_dir(meta_dir, generation))
+        .join(format_wal_path(index))
+        .as_path()
+        .to_str()
+        .unwrap()
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::base::file::format_walsegment_path;

@@ -9,6 +9,17 @@ use crate::error::Result;
 
 const COMPRESS_BUFFER_SIZE: usize = 102400;
 
+pub fn compress_buffer(data: &[u8]) -> Result<Vec<u8>> {
+    let mut buffer = Vec::with_capacity(data.len());
+    let mut encoder = EncoderBuilder::new().build(&mut buffer)?;
+
+    encoder.write_all(&data)?;
+    let (compressed_data, result) = encoder.finish();
+    result?;
+
+    Ok(compressed_data.to_owned())
+}
+
 pub fn compress_file(file_name: &str) -> Result<Vec<u8>> {
     // Open db file descriptor
     let mut reader = OpenOptions::new().read(true).open(file_name)?;
