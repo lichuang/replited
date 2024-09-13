@@ -96,7 +96,7 @@ impl Display for LogConfig {
 #[derive(Clone, PartialEq, Eq, Deserialize)]
 pub struct DatabaseConfig {
     // db file full path
-    pub path: String,
+    pub db: String,
     // replicates of db file config
     pub replicate: Vec<StorageConfig>,
 }
@@ -104,7 +104,7 @@ pub struct DatabaseConfig {
 impl Debug for DatabaseConfig {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         f.debug_struct("DatabaseConfig")
-            .field("path", &self.path)
+            .field("db", &self.db)
             .field("storage", &self.replicate)
             .finish()
     }

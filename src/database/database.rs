@@ -1,3 +1,4 @@
+use std::default;
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -10,6 +11,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
+use std::time::Instant;
 
 use log::debug;
 use log::error;
@@ -42,6 +44,7 @@ use crate::sqlite::WALFrame;
 use crate::sqlite::WALHeader;
 use crate::sqlite::CHECKPOINT_MODE_PASSIVE;
 use crate::sqlite::WALFRAME_HEADER_SIZE;
+use crate::sqlite::WAL_HEADER_SIZE;
 use crate::sync::Sync;
 use crate::sync::SyncCommand;
 
@@ -50,6 +53,8 @@ const GENERATION_LEN: usize = 32;
 // MaxIndex is the maximum possible WAL index.
 // If this index is reached then a new generation will be started.
 const MAX_WAL_INDEX: u64 = 0x7FFFFFFF;
+
+const DEFAULT_MONITOR_INTERVAL: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Debug)]
 pub enum DbCommand {
@@ -111,10 +116,15 @@ impl Default for WalGenerationPos {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct SyncInfo {
     pub generation: String,
     pub index: u64,
+    pub wal_size: u64,
+    pub shadow_wal_file: String,
+    pub shadow_wal_size: u64,
+    pub reason: Option<String>,
+    pub restart: bool,
 }
 
 impl Database {
@@ -151,7 +161,7 @@ impl Database {
     // acquire_read_lock begins a read transaction on the database to prevent checkpointing.
     fn acquire_read_lock(&mut self) -> Result<()> {
         if self.tx_connection.is_none() {
-            let tx_connection = Connection::open(&self.config.path)?;
+            let tx_connection = Connection::open(&self.config.db)?;
             // Execute read query to obtain read lock.
             tx_connection.execute_batch("BEGIN;SELECT COUNT(1) FROM _litesync_seq;")?;
             self.tx_connection = Some(tx_connection);
@@ -172,7 +182,7 @@ impl Database {
 
     // init litesync directory
     fn init_directory(config: &DatabaseConfig) -> Result<String> {
-        let file_path = PathBuf::from(&config.path);
+        let file_path = PathBuf::from(&config.db);
         let db_name = file_path.file_name().unwrap().to_str().unwrap();
         let dir_path = file_path.parent().unwrap_or_else(|| Path::new("."));
         let meta_dir = format!("{}/.{}-litesync/", dir_path.to_str().unwrap(), db_name,);
@@ -183,14 +193,14 @@ impl Database {
 
     fn try_create(config: DatabaseConfig) -> Result<(Self, Receiver<DbCommand>)> {
         info!("start database with config: {:?}\n", config);
-        let connection = Connection::open(&config.path)?;
+        let connection = Connection::open(&config.db)?;
 
         Database::init_params(&connection)?;
 
         Database::create_internal_tables(&connection)?;
 
         let page_size = connection.pragma_query_value(None, "page_size", |row| row.get(0))?;
-        let wal_file = format!("{}-wal", config.path);
+        let wal_file = format!("{}-wal", config.db);
 
         // init path
         let meta_dir = Database::init_directory(&config)?;
@@ -203,7 +213,7 @@ impl Database {
             meta_dir: meta_dir.clone(),
             page_size: page_size,
         };
-        let db = Path::new(&config.path)
+        let db = Path::new(&config.db)
             .file_name()
             .unwrap()
             .to_str()
@@ -240,14 +250,17 @@ impl Database {
         Ok((db, db_receiver))
     }
 
+    // copy pending data from wal to shadow wal
     async fn sync(&mut self) -> Result<()> {
-        debug!("sync database: {}", self.config.path);
+        debug!("sync database: {}", self.config.db);
 
         // make sure wal file has at least one frame in it
         if let Err(e) = self.ensure_wal_exists() {
             error!("ensure_wal_exists error: {:?}", e);
             return Ok(());
         }
+
+        let start = Instant::now();
 
         // Verify our last sync matches the current state of the WAL.
         // This ensures that we have an existing generation & that the last sync
@@ -324,7 +337,7 @@ impl Database {
         }
 
         // create new shadow wal file
-        let db_file_metadata = fs::metadata(&self.config.path)?;
+        let db_file_metadata = fs::metadata(&self.config.db)?;
         let mode = db_file_metadata.mode();
         let mut shadow_wal_file = fs::File::create(&shadow_wal)?;
         let mut permissions = shadow_wal_file.metadata()?.permissions();
@@ -444,7 +457,7 @@ impl Database {
             )));
         }
 
-        if stat.len() >= WALFRAME_HEADER_SIZE as u64 {
+        if stat.len() >= WAL_HEADER_SIZE as u64 {
             return Ok(());
         }
 
@@ -494,17 +507,15 @@ impl Database {
 
     // current_generation returns the name of the generation saved to the "generation"
     // file in the meta data directory.
-    // Returns error if none exists.
+    // Returns empty string if none exists.
     fn current_generation(&self) -> Result<String> {
         let generation_file = generation_file_path(&self.meta_dir);
-        debug!("read generation_file: {:?}", generation_file);
+        if !fs::exists(&generation_file)? {
+            return Ok("".to_string());
+        }
         let generation = fs::read_to_string(&generation_file)?;
-        debug!(
-            "after read generation_file: {:?}, {:?}",
-            generation_file, generation
-        );
         if generation.len() != GENERATION_LEN {
-            return Err(Error::StorageNotFound("empty generation"));
+            return Ok("".to_string());
         }
 
         Ok(generation)
@@ -514,26 +525,64 @@ impl Database {
     // the real WAL. Returns generation & WAL sync information. If info.reason is
     // not blank, verification failed and a new generation should be started.
     fn verify(&mut self) -> Result<SyncInfo> {
+        let mut info = SyncInfo::default();
         // get existing generation
         let generation = self.current_generation()?;
-        let db_file = fs::metadata(&self.config.path)?;
+        if generation.is_empty() {
+            info.reason = Some("no generation exists".to_string());
+            return Ok(info);
+        }
+        info.generation = generation;
+
+        let db_file = fs::metadata(&self.config.db)?;
         let db_size = db_file.len();
         let db_mod_time = db_file.modified()?;
 
         // total bytes of real WAL.
         let wal_file = fs::metadata(&self.wal_file)?;
         let wal_size = align_frame(self.page_size, wal_file.len());
+        info.wal_size = wal_size;
 
         // get current shadow wal index
-        let (index, _total_size) = self.current_shadow_index(&generation)?;
+        let (index, _total_size) = self.current_shadow_index(&info.generation)?;
         if index > MAX_WAL_INDEX {
-            return Err(Error::ExceedMaxWalIndex("exceed max wal index"));
+            info.reason = Some("max index exceeded".to_string());
+            return Ok(info);
         }
-        let shadow_wal_file = self.shadow_wal_file(&generation, index);
+        info.shadow_wal_file = self.shadow_wal_file(&info.generation, index);
 
         // Determine shadow WAL current size.
+        if !fs::exists(&info.shadow_wal_file)? {
+            info.reason = Some("no shadow wal".to_string());
+            return Ok(info);
+        }
+        let shadow_wal_file = fs::metadata(&info.shadow_wal_file)?;
+        info.shadow_wal_size = align_frame(self.page_size, shadow_wal_file.len());
+        if info.shadow_wal_size < WAL_HEADER_SIZE as u64 {
+            info.reason = Some("short shadow wal".to_string());
+            return Ok(info);
+        }
 
-        Ok(SyncInfo { generation, index })
+        if info.shadow_wal_size > info.wal_size {
+            info.reason = Some("wal truncated by another process".to_string());
+            return Ok(info);
+        }
+
+        // Compare WAL headers. Start a new shadow WAL if they are mismatched.
+        let wal_header = WALHeader::read(&self.wal_file)?;
+        let shadow_wal_header = WALHeader::read(&info.shadow_wal_file)?;
+        if wal_header.data != shadow_wal_header.data {
+            info.restart = true;
+        }
+
+        if info.shadow_wal_size == WAL_HEADER_SIZE as u64 && info.restart {
+            info.reason = Some("wal header only, mismatched".to_string());
+            return Ok(info);
+        }
+
+        // Verify last page synced still matches.
+        if info.shadow_wal_size > WAL_HEADER_SIZE as u64 {}
+        Ok(info)
     }
 
     fn checkpoint(&mut self, mode: &str) -> Result<()> {
@@ -600,7 +649,7 @@ impl Database {
         if pos.is_empty() {}
 
         // compress db file
-        let compressed_data = compress_file(&self.config.path)?;
+        let compressed_data = compress_file(&self.config.db)?;
 
         Ok(compressed_data.to_owned())
     }
@@ -623,19 +672,20 @@ impl Drop for Database {
 
 pub async fn run_database(config: DatabaseConfig) -> Result<()> {
     let (mut database, mut db_receiver) = Database::try_create(config)?;
-    let timeout_duration = Duration::from_secs(1);
     loop {
         select! {
             cmd = db_receiver.recv() => {
-                //s.command(cmd).await?
-                println!("cmd: {:?}", cmd);
                 match cmd {
-                    Some(cmd) => database.handle_db_command(cmd).await?,
+                    Some(cmd) => if let Err(e) = database.handle_db_command(cmd).await {
+                        error!("handle_db_command of db {} error: {:?}", database.config.db, e);
+                    },
                     None => {}
                 }
             }
-            _ = sleep(timeout_duration) => {
-                database.sync().await?;
+            _ = sleep(DEFAULT_MONITOR_INTERVAL) => {
+                if let Err(e) = database.sync().await {
+                    error!("sync db {} error: {:?}", database.config.db, e);
+                }
             }
         }
     }

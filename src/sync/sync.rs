@@ -177,6 +177,7 @@ impl Sync {
             salt = wal_frame.salt;
 
             data.extend_from_slice(&wal_frame.data);
+            reader.advance(wal_frame.data.len())?;
         }
         let compressed_data = compress_buffer(&data)?;
 
@@ -246,6 +247,14 @@ impl Sync {
             self.position = pos;
         }
 
+        // Read all WAL files since the last position.
+        loop {
+            if let Err(e) = self.sync_wal().await {
+                if e.code() == Error::UNEXPECTED_EOF_ERROR {
+                    break;
+                }
+            }
+        }
         Ok(())
     }
 }

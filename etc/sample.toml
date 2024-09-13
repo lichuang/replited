@@ -3,7 +3,7 @@ level = "Debug"
 dir = "/var/log/litesync/"
 
 [[database]]
-path = "/Users/codedump/local/sqlite/test.db"
+db = "/Users/codedump/local/sqlite/test.db"
 
 [[database.replicate]]
 allow_insecure = true

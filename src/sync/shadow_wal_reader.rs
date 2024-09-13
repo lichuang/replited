@@ -64,14 +64,17 @@ impl ShadowWalReader {
         self.pos.clone()
     }
 
-    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    pub fn advance(&mut self, n: usize) -> Result<()> {
         if self.left == 0 {
             return Err(Error::from_error_code(Error::UNEXPECTED_EOF_ERROR, ""));
         }
-        let n = self.file.read(buf)?;
-        self.left -= n as u64;
-        self.pos.offset += n as u64;
+        let n = n as u64;
+        if self.left < n {
+            return Err(Error::from_error_code(Error::BAD_SHADOW_WAL_ERROR, ""));
+        }
+        self.left -= n;
+        self.pos.offset += n;
 
-        Ok(n)
+        Ok(())
     }
 }

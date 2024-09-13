@@ -47,11 +47,9 @@ impl SyncClient {
         pos: &WalGenerationPos,
         compressed_data: Vec<u8>,
     ) -> Result<()> {
-        let wal_segment_file = walsegment_file(&self.db, &pos.generation, pos.index, pos.offset);
+        let file = walsegment_file(&self.db, &pos.generation, pos.index, pos.offset);
 
-        self.operator
-            .write(&wal_segment_file, compressed_data)
-            .await?;
+        self.operator.write(&file, compressed_data).await?;
 
         Ok(())
     }

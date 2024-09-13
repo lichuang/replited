@@ -59,7 +59,6 @@ build_error! {
     StoragePermissionDenied(52),
     StorageOther(53),
     InvalidPath(54),
-    ExceedMaxWalIndex(55),
 
     // database error
     SpawnDatabaseTaskError(80),
@@ -74,6 +73,7 @@ build_error! {
     SqliteWalFrameHeaderError(123),
     NoSnapshotError(124),
     NoWalsegmentError(125),
+    BadShadowWalError(126),
 
     // other error
     PanicError(140),
