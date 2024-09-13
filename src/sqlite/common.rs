@@ -4,7 +4,7 @@ use std::os::unix::fs::FileExt;
 use crate::error::Error;
 use crate::error::Result;
 
-pub const WALFRAME_HEADER_SIZE: usize = 24;
+pub const WAL_FRAME_HEADER_SIZE: usize = 24;
 pub const WAL_HEADER_SIZE: usize = 32;
 pub const WAL_HEADER_CHECKSUM_OFFSET: u64 = 24;
 
@@ -51,7 +51,7 @@ pub fn read_last_checksum(file: &mut File, page_size: u32) -> Result<(u32, u32)>
     let fsize = metadata.len();
     let sz = align_frame(page_size, fsize);
     let offset = if fsize > WAL_HEADER_SIZE as u64 {
-        sz - page_size as u64 - WALFRAME_HEADER_SIZE as u64 + WAL_HEADER_CHECKSUM_OFFSET
+        sz - page_size as u64 - WAL_FRAME_HEADER_SIZE as u64 + WAL_HEADER_CHECKSUM_OFFSET
     } else {
         WAL_HEADER_CHECKSUM_OFFSET as u64
     };
@@ -77,7 +77,7 @@ pub fn align_frame(page_size: u32, offset: u64) -> u64 {
         return 0;
     }
 
-    let frame_size = WALFRAME_HEADER_SIZE as u64 + page_size as u64;
+    let frame_size = WAL_FRAME_HEADER_SIZE as u64 + page_size as u64;
     let frame_num = (offset as u64 - WAL_HEADER_SIZE as u64) / frame_size;
 
     (frame_num * frame_size) + WAL_HEADER_SIZE as u64

@@ -1,4 +1,3 @@
-use std::default;
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -10,8 +9,8 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
-use std::time::Instant;
 
 use log::debug;
 use log::error;
@@ -22,6 +21,7 @@ use tokio::select;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use uuid::timestamp;
@@ -29,10 +29,11 @@ use uuid::NoContext;
 use uuid::Uuid;
 
 use crate::base::compress_file;
-use crate::base::format_wal_path;
+use crate::base::generation_dir;
 use crate::base::generation_file_path;
 use crate::base::generations_dir;
 use crate::base::parse_wal_path;
+use crate::base::path_base;
 use crate::base::shadow_wal_dir;
 use crate::base::shadow_wal_file;
 use crate::config::DatabaseConfig;
@@ -43,7 +44,7 @@ use crate::sqlite::read_last_checksum;
 use crate::sqlite::WALFrame;
 use crate::sqlite::WALHeader;
 use crate::sqlite::CHECKPOINT_MODE_PASSIVE;
-use crate::sqlite::WALFRAME_HEADER_SIZE;
+use crate::sqlite::WAL_FRAME_HEADER_SIZE;
 use crate::sqlite::WAL_HEADER_SIZE;
 use crate::sync::Sync;
 use crate::sync::SyncCommand;
@@ -88,12 +89,13 @@ pub struct Database {
     sync_notifiers: Vec<Sender<SyncCommand>>,
     // sync: Vec<Sync>,
     sync_handle: Vec<JoinHandle<()>>,
+    syncs: Vec<Arc<RwLock<Sync>>>,
 
     // checkpoint mutex
     checkpoint_mutex: Mutex<()>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct WalGenerationPos {
     pub generation: String,
     pub index: u64,
@@ -103,16 +105,6 @@ pub struct WalGenerationPos {
 impl WalGenerationPos {
     pub fn is_empty(&self) -> bool {
         self.offset == 0
-    }
-}
-
-impl Default for WalGenerationPos {
-    fn default() -> Self {
-        Self {
-            generation: "".to_string(),
-            index: 0,
-            offset: 0,
-        }
     }
 }
 
@@ -209,6 +201,7 @@ impl Database {
         let (db_notifier, db_receiver) = mpsc::channel(16);
         let mut sync_handle = Vec::with_capacity(config.replicate.len());
         let mut sync_notifiers = Vec::with_capacity(config.replicate.len());
+        let mut syncs = Vec::with_capacity(config.replicate.len());
         let info = DatabaseInfo {
             meta_dir: meta_dir.clone(),
             page_size: page_size,
@@ -228,6 +221,7 @@ impl Database {
                 db_notifier.clone(),
                 info.clone(),
             )?;
+            syncs.push(s.clone());
             let h = Sync::start(s, sync_receiver)?;
             sync_handle.push(h);
             sync_notifiers.push(sync_notifier);
@@ -242,6 +236,7 @@ impl Database {
             tx_connection: None,
             sync_notifiers,
             sync_handle,
+            syncs,
             checkpoint_mutex: Mutex::new(()),
         };
 
@@ -260,20 +255,15 @@ impl Database {
             return Ok(());
         }
 
-        let start = Instant::now();
-
         // Verify our last sync matches the current state of the WAL.
         // This ensures that we have an existing generation & that the last sync
         // position of the real WAL hasn't been overwritten by another process.
-        let ret = self.verify();
-        if let Err(e) = ret {
-            if e.code() == Error::STORAGE_NOT_FOUND {
-                debug!("generation not exists, try to create new generation...");
-                self.create_generation()?;
-            } else {
-                error!("verify error: {:?}", e);
-                return Err(e);
-            }
+        let mut info = self.verify()?;
+        debug!("sync info: {:?}", info);
+
+        if let Some(reason) = &info.reason {
+            // Start new generation & notify user via log message.
+            info.generation = self.create_generation()?;
         }
 
         // notify the database has been changed
@@ -311,19 +301,92 @@ impl Database {
         shadow_wal_dir(&self.meta_dir, generation)
     }
 
-    fn create_generation(&mut self) -> Result<()> {
+    // create_generation initiates a new generation by establishing the generation
+    // directory, capturing snapshots for each replica, and refreshing the current
+    // generation name.
+    fn create_generation(&mut self) -> Result<String> {
         // Generate random generation using UUID V7
         let timestamp = timestamp::Timestamp::now(NoContext);
         let generation = Uuid::new_v7(timestamp).as_simple().to_string();
         fs::write(generation_file_path(&self.meta_dir), generation.clone())?;
 
-        // Generate new directory.
-        let wal_dir_path = self.shadow_wal_dir(&generation);
-        debug!("create new wal dir {:?}", wal_dir_path);
-        fs::create_dir_all(&wal_dir_path)?;
+        // create new directory.
+        let dir = generation_dir(&self.meta_dir, &generation);
+        fs::create_dir_all(&dir)?;
 
         // init first(index 0) shadow wal file
         self.init_shadow_wal_file(self.shadow_wal_file(&generation, 0))?;
+
+        // Remove old generations.
+        Ok(generation)
+    }
+
+    // remove old generations files
+    fn clean(&mut self) -> Result<()> {
+        self.clean_generations()?;
+        Ok(())
+    }
+
+    fn clean_generations(&self) -> Result<()> {
+        let generation = self.current_generation()?;
+        let genetations_dir = generations_dir(&self.meta_dir);
+
+        if !fs::exists(&genetations_dir)? {
+            return Ok(());
+        }
+        for entry in fs::read_dir(&genetations_dir)? {
+            let entry = entry?;
+            let file_name = entry.file_name().as_os_str().to_str().unwrap().to_string();
+            let base = path_base(&file_name)?;
+            if base == generation {
+                continue;
+            }
+            let path = Path::new(&genetations_dir)
+                .join(&file_name)
+                .as_path()
+                .to_str()
+                .unwrap()
+                .to_string();
+            fs::remove_dir_all(&path)?;
+        }
+        Ok(())
+    }
+
+    // removes WAL files that have been replicated.
+    async fn clean_wal(&self) -> Result<()> {
+        let generation = self.current_generation()?;
+
+        let mut min = None;
+        for sync in &self.syncs {
+            let sync = sync.read().await;
+            let mut position = sync.position();
+            if position.generation != generation {
+                position = WalGenerationPos::default();
+            }
+            match min {
+                None => min = Some(position.index),
+                Some(m) => {
+                    if position.index < m {
+                        min = Some(position.index);
+                    }
+                }
+            }
+        }
+
+        // Skip if our lowest index is too small.
+        let mut min = match min {
+            None => return Ok(()),
+            Some(min) => min,
+        };
+
+        if min <= 0 {
+            return Ok(());
+        }
+        // Keep an extra WAL file.
+        min -= 1;
+
+        // Remove all WAL files for the generation before the lowest index.
+
         Ok(())
     }
 
@@ -355,6 +418,7 @@ impl Database {
 
         // copy wal file frame into shadow wal file
         self.copy_to_shadow_wal(shadow_wal)?;
+
         Ok(())
     }
 
@@ -534,9 +598,7 @@ impl Database {
         }
         info.generation = generation;
 
-        let db_file = fs::metadata(&self.config.db)?;
-        let db_size = db_file.len();
-        let db_mod_time = db_file.modified()?;
+        // let db_file = fs::metadata(&self.config.db)?;
 
         // total bytes of real WAL.
         let wal_file = fs::metadata(&self.wal_file)?;
@@ -581,7 +643,24 @@ impl Database {
         }
 
         // Verify last page synced still matches.
-        if info.shadow_wal_size > WAL_HEADER_SIZE as u64 {}
+        if info.shadow_wal_size > WAL_HEADER_SIZE as u64 {
+            let offset =
+                info.shadow_wal_size - self.page_size as u64 - WAL_FRAME_HEADER_SIZE as u64;
+
+            let mut wal_file = OpenOptions::new().read(true).open(&self.wal_file)?;
+            wal_file.seek(SeekFrom::Start(offset))?;
+            let wal_last_frame = WALFrame::read_without_checksum(&mut wal_file, self.page_size, 0)?;
+
+            let mut shadow_wal_file = OpenOptions::new().read(true).open(&info.shadow_wal_file)?;
+            shadow_wal_file.seek(SeekFrom::Start(offset))?;
+            let shadow_wal_last_frame =
+                WALFrame::read_without_checksum(&mut shadow_wal_file, self.page_size, 0)?;
+            if wal_last_frame.data != shadow_wal_last_frame.data {
+                info.reason = Some("wal overwritten by another process".to_string());
+                return Ok(info);
+            }
+        }
+
         Ok(info)
     }
 

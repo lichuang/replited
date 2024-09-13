@@ -17,7 +17,7 @@ static SNAPSHOT_REGEX: LazyLock<Regex> =
 static SNAPSHOT_EXTENDION: &str = ".snapshot.lz4";
 
 // return base name of path
-fn path_base(path: &str) -> Result<String> {
+pub fn path_base(path: &str) -> Result<String> {
     let path_buf = PathBuf::from(path);
     path_buf
         .file_name()
@@ -96,8 +96,17 @@ pub fn format_snapshot_path(index: u64) -> String {
     format!("{:08X}{}", index, SNAPSHOT_EXTENDION)
 }
 
+pub fn generations_dir(meta_dir: &str) -> String {
+    Path::new(meta_dir)
+        .join("generations")
+        .as_path()
+        .to_str()
+        .unwrap()
+        .to_string()
+}
+
 // returns the path of a single generation.
-pub fn generations_dir(meta_dir: &str, generation: &str) -> String {
+pub fn generation_dir(meta_dir: &str, generation: &str) -> String {
     Path::new(meta_dir)
         .join("generations")
         .join(generation)
@@ -108,7 +117,7 @@ pub fn generations_dir(meta_dir: &str, generation: &str) -> String {
 }
 
 pub fn snapshots_dir(db: &str, generation: &str) -> String {
-    Path::new(&generations_dir(db, generation))
+    Path::new(&generation_dir(db, generation))
         .join("snapshots/")
         .as_path()
         .to_str()
@@ -117,7 +126,7 @@ pub fn snapshots_dir(db: &str, generation: &str) -> String {
 }
 
 pub fn snapshot_file(db: &str, generation: &str, index: u64) -> String {
-    Path::new(&generations_dir(db, generation))
+    Path::new(&generation_dir(db, generation))
         .join("snapshots")
         .join(format_snapshot_path(index))
         .as_path()
@@ -127,7 +136,7 @@ pub fn snapshot_file(db: &str, generation: &str, index: u64) -> String {
 }
 
 pub fn walsegments_dir(db: &str, generation: &str) -> String {
-    Path::new(&generations_dir(db, generation))
+    Path::new(&generation_dir(db, generation))
         .join("wal/")
         .as_path()
         .to_str()
@@ -136,7 +145,7 @@ pub fn walsegments_dir(db: &str, generation: &str) -> String {
 }
 
 pub fn walsegment_file(db: &str, generation: &str, index: u64, offset: u64) -> String {
-    Path::new(&generations_dir(db, generation))
+    Path::new(&generation_dir(db, generation))
         .join("wal")
         .join(format_walsegment_path(index, offset))
         .as_path()
@@ -160,7 +169,7 @@ pub fn generation_file_path(meta_dir: &str) -> String {
 }
 
 pub fn shadow_wal_dir(meta_dir: &str, generation: &str) -> String {
-    Path::new(&generations_dir(meta_dir, generation))
+    Path::new(&generation_dir(meta_dir, generation))
         .join("wal")
         .as_path()
         .to_str()

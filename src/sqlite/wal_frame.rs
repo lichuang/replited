@@ -3,7 +3,7 @@ use std::io::Read;
 
 use super::checksum;
 use super::WALHeader;
-use super::WALFRAME_HEADER_SIZE;
+use super::WAL_FRAME_HEADER_SIZE;
 use crate::error::Error;
 use crate::error::Result;
 
@@ -18,11 +18,11 @@ pub struct WALFrame {
 impl WALFrame {
     pub fn read_without_checksum(file: &mut File, page_size: u32, psalt: u64) -> Result<WALFrame> {
         let metadata = file.metadata()?;
-        if metadata.len() < WALFRAME_HEADER_SIZE as u64 {
+        if metadata.len() < WAL_FRAME_HEADER_SIZE as u64 {
             return Err(Error::SqliteWalFrameHeaderError("Invalid WAL frame header"));
         }
 
-        let mut data: Vec<u8> = vec![0u8; WALFRAME_HEADER_SIZE + page_size as usize];
+        let mut data: Vec<u8> = vec![0u8; WAL_FRAME_HEADER_SIZE + page_size as usize];
         // let mut buf = data.as_mut_slice();
         file.read_exact(&mut data)?;
 
@@ -57,11 +57,11 @@ impl WALFrame {
         wal_header: &WALHeader,
     ) -> Result<WALFrame> {
         let metadata = file.metadata()?;
-        if metadata.len() < WALFRAME_HEADER_SIZE as u64 {
+        if metadata.len() < WAL_FRAME_HEADER_SIZE as u64 {
             return Err(Error::SqliteWalFrameHeaderError("Invalid WAL frame header"));
         }
 
-        let mut data: Vec<u8> = vec![0u8; WALFRAME_HEADER_SIZE + page_size as usize];
+        let mut data: Vec<u8> = vec![0u8; WAL_FRAME_HEADER_SIZE + page_size as usize];
         // let mut buf = data.as_mut_slice();
         file.read_exact(&mut data)?;
 

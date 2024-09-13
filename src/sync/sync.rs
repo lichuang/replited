@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use log::info;
 use tokio::select;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
 use super::sync_client::SnapshotInfo;
@@ -48,28 +51,28 @@ impl Sync {
         index: usize,
         db_notifier: Sender<DbCommand>,
         info: DatabaseInfo,
-    ) -> Result<Self> {
-        Ok(Self {
+    ) -> Result<Arc<RwLock<Self>>> {
+        Ok(Arc::new(RwLock::new(Self {
             index,
             position: WalGenerationPos::default(),
             db_notifier,
             client: SyncClient::new(db, config)?,
             state: SyncState::WaitDbChanged,
             info,
-        })
+        })))
     }
 
-    pub fn start(s: Sync, rx: Receiver<SyncCommand>) -> Result<JoinHandle<()>> {
-        let mut s = s;
+    pub fn start(s: Arc<RwLock<Sync>>, rx: Receiver<SyncCommand>) -> Result<JoinHandle<()>> {
         let handle = tokio::spawn(async move {
-            let _ = Sync::main(&mut s, rx).await;
+            let _ = Sync::main(s.clone(), rx).await;
         });
 
         Ok(handle)
     }
 
-    pub async fn main(s: &mut Sync, rx: Receiver<SyncCommand>) -> Result<()> {
+    pub async fn main(s: Arc<RwLock<Sync>>, rx: Receiver<SyncCommand>) -> Result<()> {
         let mut rx = rx;
+        let mut s = s.write().await;
         loop {
             select! {
                 cmd = rx.recv() => if let Some(cmd) = cmd {
@@ -189,6 +192,10 @@ impl Sync {
         // update position
         self.position = reader.pos();
         Ok(())
+    }
+
+    pub fn position(&self) -> WalGenerationPos {
+        self.position.clone()
     }
 
     async fn command(&mut self, cmd: SyncCommand) -> Result<()> {
