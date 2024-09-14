@@ -17,11 +17,13 @@ use log::error;
 use log::info;
 use parking_lot::Mutex;
 use rusqlite::Connection;
+use tokio::runtime::Handle;
 use tokio::select;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLock;
+use tokio::task::block_in_place;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use uuid::timestamp;
@@ -261,16 +263,46 @@ impl Database {
         let mut info = self.verify()?;
         debug!("sync info: {:?}", info);
 
+        // Track if anything in the shadow WAL changes and then notify at the end.
+        let mut changed =
+            info.wal_size != info.shadow_wal_size || info.restart || info.reason.is_some();
+
         if let Some(reason) = &info.reason {
             // Start new generation & notify user via log message.
-            info.generation = self.create_generation()?;
+            info.generation = self.create_generation().await?;
+            info!(
+                "sync new generation: {}, reason: {}",
+                info.generation, reason
+            );
+
+            // Clear shadow wal info.
+            info.shadow_wal_file = shadow_wal_file(&self.meta_dir, &info.generation, 0);
+            info.shadow_wal_size = WAL_HEADER_SIZE as u64;
+            info.restart = false;
+            info.reason = None;
         }
 
+        // Synchronize real WAL with current shadow WAL.
+        let (orig_wal_size, new_wal_size) = self.sync_wal(&info)?;
+
+        // If WAL size is great than max threshold, force checkpoint.
+        // If WAL size is greater than min threshold, attempt checkpoint.
+        let mut checkpoint = false;
+        let mut checkmode = CHECKPOINT_MODE_PASSIVE;
+
+        if checkpoint {
+            changed = true;
+        }
+
+        self.clean()?;
+
         // notify the database has been changed
-        let generation_pos = self.wal_generation_position()?;
-        self.sync_notifiers[0]
-            .send(SyncCommand::DbChanged(generation_pos))
-            .await?;
+        if changed {
+            let generation_pos = self.wal_generation_position()?;
+            self.sync_notifiers[0]
+                .send(SyncCommand::DbChanged(generation_pos))
+                .await?;
+        }
 
         Ok(())
     }
@@ -296,15 +328,10 @@ impl Database {
         shadow_wal_file(&self.meta_dir, generation, index)
     }
 
-    // returns the path of the shadow wal directory
-    fn shadow_wal_dir(&self, generation: &str) -> String {
-        shadow_wal_dir(&self.meta_dir, generation)
-    }
-
     // create_generation initiates a new generation by establishing the generation
     // directory, capturing snapshots for each replica, and refreshing the current
     // generation name.
-    fn create_generation(&mut self) -> Result<String> {
+    async fn create_generation(&mut self) -> Result<String> {
         // Generate random generation using UUID V7
         let timestamp = timestamp::Timestamp::now(NoContext);
         let generation = Uuid::new_v7(timestamp).as_simple().to_string();
@@ -315,15 +342,45 @@ impl Database {
         fs::create_dir_all(&dir)?;
 
         // init first(index 0) shadow wal file
-        self.init_shadow_wal_file(self.shadow_wal_file(&generation, 0))?;
+        self.init_shadow_wal_file(&self.shadow_wal_file(&generation, 0))?;
 
         // Remove old generations.
+        self.clean()?;
+
         Ok(generation)
     }
 
-    // remove old generations files
+    // copies pending bytes from the real WAL to the shadow WAL.
+    fn sync_wal(&self, info: &SyncInfo) -> Result<(u64, u64)> {
+        let (orig_size, new_size) = self.copy_to_shadow_wal(&info.shadow_wal_file)?;
+
+        if !info.restart {
+            return Ok((orig_size, new_size));
+        }
+
+        // Parse index of current shadow WAL file.
+        let index = parse_wal_path(&info.shadow_wal_file)?;
+
+        // Start a new shadow WAL file with next index.
+        let new_shadow_wal_file = shadow_wal_file(&self.meta_dir, &info.generation, index + 1);
+        let new_size = self.init_shadow_wal_file(&new_shadow_wal_file)?;
+
+        Ok((orig_size, new_size))
+    }
+
+    // remove old generations files and wal files
     fn clean(&mut self) -> Result<()> {
         self.clean_generations()?;
+
+        block_in_place(move || {
+            Handle::current().block_on(async {
+                if let Err(e) = self.clean_wal().await {
+                    error!("db {} clean wal error: {:?}", self.config.db, e);
+                }
+            })
+        });
+        // self.clean_wal()?;
+
         Ok(())
     }
 
@@ -358,6 +415,7 @@ impl Database {
 
         let mut min = None;
         for sync in &self.syncs {
+            // let sync = sync.read().await;
             let sync = sync.read().await;
             let mut position = sync.position();
             if position.generation != generation {
@@ -386,11 +444,30 @@ impl Database {
         min -= 1;
 
         // Remove all WAL files for the generation before the lowest index.
+        let dir = shadow_wal_dir(&self.meta_dir, &generation);
+        if !fs::exists(&dir)? {
+            return Ok(());
+        }
+        for entry in fs::read_dir(&dir)? {
+            let entry = entry?;
+            let file_name = entry.file_name().as_os_str().to_str().unwrap().to_string();
+            let index = parse_wal_path(&file_name)?;
+            if index >= min {
+                continue;
+            }
+            let path = Path::new(&dir)
+                .join(&file_name)
+                .as_path()
+                .to_str()
+                .unwrap()
+                .to_string();
+            fs::remove_dir_all(&path)?;
+        }
 
         Ok(())
     }
 
-    fn init_shadow_wal_file(&self, shadow_wal: String) -> Result<()> {
+    fn init_shadow_wal_file(&self, shadow_wal: &String) -> Result<u64> {
         debug!("init_shadow_wal_file {}", shadow_wal);
 
         // read wal file header
@@ -417,17 +494,17 @@ impl Database {
         debug!("create shadow wal file {}", shadow_wal);
 
         // copy wal file frame into shadow wal file
-        self.copy_to_shadow_wal(shadow_wal)?;
+        let (_, new_size) = self.copy_to_shadow_wal(&shadow_wal)?;
 
-        Ok(())
+        Ok(new_size)
     }
 
     // return original wal file size and new wal size
-    fn copy_to_shadow_wal(&self, shadow_wal: String) -> Result<(u64, u64)> {
+    fn copy_to_shadow_wal(&self, shadow_wal: &String) -> Result<(u64, u64)> {
         let wal_file_metadata = fs::metadata(&self.wal_file)?;
         let orig_wal_size = align_frame(self.page_size, wal_file_metadata.size());
 
-        let shadow_wal_file_metadata = fs::metadata(&shadow_wal)?;
+        let shadow_wal_file_metadata = fs::metadata(shadow_wal)?;
         let orig_shadow_wal_size = align_frame(self.page_size, shadow_wal_file_metadata.size());
         debug!(
             "copy_to_shadow_wal orig_wal_size: {},  orig_shadow_wal_size: {}",
@@ -435,7 +512,7 @@ impl Database {
         );
 
         // read shadow wal header
-        let wal_header = WALHeader::read(&shadow_wal)?;
+        let wal_header = WALHeader::read(shadow_wal)?;
 
         // copy wal frames into temp shadow wal file
         let temp_shadow_wal_file = format!("{}.tmp", shadow_wal);
@@ -456,10 +533,7 @@ impl Database {
         // seek on real db wal
         let mut wal_file = File::open(&self.wal_file)?;
 
-        let mut shadow_wal_file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&shadow_wal)?;
+        let mut shadow_wal_file = OpenOptions::new().read(true).write(true).open(shadow_wal)?;
         wal_file.seek(SeekFrom::Start(orig_shadow_wal_size))?;
         // read last checksum of shadow wal file
         let (ck1, ck2) = read_last_checksum(&mut shadow_wal_file, self.page_size)?;
@@ -505,7 +579,7 @@ impl Database {
         fs::remove_file(&temp_shadow_wal_file)?;
 
         // append wal frames to end of shadow wal file
-        let mut shadow_wal_file = OpenOptions::new().append(true).open(&shadow_wal)?;
+        let mut shadow_wal_file = OpenOptions::new().append(true).open(shadow_wal)?;
         shadow_wal_file.write_all(&buffer).unwrap();
 
         Ok((orig_wal_size, last_commit_size))
@@ -536,7 +610,7 @@ impl Database {
 
     // current_shadow_index returns the current WAL index & total size.
     fn current_shadow_index(&self, generation: &str) -> Result<(u64, u64)> {
-        let wal_dir_path = self.shadow_wal_dir(generation);
+        let wal_dir_path = shadow_wal_dir(&self.meta_dir, generation);
         let entries = fs::read_dir(&wal_dir_path)?;
 
         let mut total_size = 0;
