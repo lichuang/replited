@@ -9,7 +9,7 @@ use crate::sqlite::WAL_HEADER_BIG_ENDIAN_MAGIC;
 use crate::sqlite::WAL_HEADER_LITTLE_ENDIAN_MAGIC;
 use crate::sqlite::WAL_HEADER_SIZE;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct WALHeader {
     pub data: Vec<u8>,
     pub salt: u64,

@@ -10,6 +10,11 @@ use super::StorageParams;
 use crate::error::Error;
 use crate::error::Result;
 
+const DEFAULT_MIN_CHECKPOINT_PAGE_NUMBER: u32 = 1000;
+const DEFAULT_MAX_CHECKPOINT_PAGE_NUMBER: u32 = 10000;
+const DEFAULT_TRUNCATE_PAGE_NUMBER: u32 = 500000;
+const DEFAULT_CHECKPOINT_INTERVAL_SECS: u64 = 60;
+
 #[derive(Clone, PartialEq, Eq, Deserialize)]
 pub struct Config {
     pub log: LogConfig,
@@ -44,6 +49,9 @@ impl Config {
     }
 
     fn validate(&self) -> Result<()> {
+        for db in &self.database {
+            db.validate()?;
+        }
         Ok(())
     }
 }
@@ -97,8 +105,57 @@ impl Display for LogConfig {
 pub struct DatabaseConfig {
     // db file full path
     pub db: String,
+
     // replicates of db file config
     pub replicate: Vec<StorageConfig>,
+
+    // Minimum threshold of WAL size, in pages, before a passive checkpoint.
+    // A passive checkpoint will attempt a checkpoint but fail if there are
+    // active transactions occurring at the same time.
+    #[serde(default = "default_min_checkpoint_page_number")]
+    pub min_checkpoint_page_number: u32,
+
+    // Maximum threshold of WAL size, in pages, before a forced checkpoint.
+    // A forced checkpoint will block new transactions and wait for existing
+    // transactions to finish before issuing a checkpoint and resetting the WAL.
+    //
+    // If zero, no checkpoints are forced. This can cause the WAL to grow
+    // unbounded if there are always read transactions occurring.
+    #[serde(default = "default_max_checkpoint_page_number")]
+    pub max_checkpoint_page_number: u32,
+
+    // Threshold of WAL size, in pages, before a forced truncation checkpoint.
+    // A forced truncation checkpoint will block new transactions and wait for
+    // existing transactions to finish before issuing a checkpoint and
+    // truncating the WAL.
+    //
+    // If zero, no truncates are forced. This can cause the WAL to grow
+    // unbounded if there's a sudden spike of changes between other
+    // checkpoints.
+    #[serde(default = "default_truncate_page_number")]
+    pub truncate_page_number: u32,
+
+    // Seconds between automatic checkpoints in the WAL. This is done to allow
+    // more fine-grained WAL files so that restores can be performed with
+    // better precision.
+    #[serde(default = "default_checkpoint_interval_secs")]
+    pub checkpoint_interval_secs: u64,
+}
+
+fn default_min_checkpoint_page_number() -> u32 {
+    DEFAULT_MIN_CHECKPOINT_PAGE_NUMBER
+}
+
+fn default_max_checkpoint_page_number() -> u32 {
+    DEFAULT_MAX_CHECKPOINT_PAGE_NUMBER
+}
+
+fn default_truncate_page_number() -> u32 {
+    DEFAULT_TRUNCATE_PAGE_NUMBER
+}
+
+fn default_checkpoint_interval_secs() -> u64 {
+    DEFAULT_CHECKPOINT_INTERVAL_SECS
 }
 
 impl Debug for DatabaseConfig {
@@ -106,7 +163,17 @@ impl Debug for DatabaseConfig {
         f.debug_struct("DatabaseConfig")
             .field("db", &self.db)
             .field("storage", &self.replicate)
+            .field(
+                "min_checkpoint_page_number",
+                &self.min_checkpoint_page_number,
+            )
             .finish()
+    }
+}
+
+impl DatabaseConfig {
+    fn validate(&self) -> Result<()> {
+        Ok(())
     }
 }
 

@@ -17,6 +17,7 @@ use log::error;
 use log::info;
 use parking_lot::Mutex;
 use rusqlite::Connection;
+use rusqlite::DropBehavior;
 use tokio::runtime::Handle;
 use tokio::select;
 use tokio::sync::mpsc;
@@ -46,6 +47,8 @@ use crate::sqlite::read_last_checksum;
 use crate::sqlite::WALFrame;
 use crate::sqlite::WALHeader;
 use crate::sqlite::CHECKPOINT_MODE_PASSIVE;
+use crate::sqlite::CHECKPOINT_MODE_RESTART;
+use crate::sqlite::CHECKPOINT_MODE_TRUNCATE;
 use crate::sqlite::WAL_FRAME_HEADER_SIZE;
 use crate::sqlite::WAL_HEADER_SIZE;
 use crate::sync::Sync;
@@ -57,6 +60,7 @@ const GENERATION_LEN: usize = 32;
 // If this index is reached then a new generation will be started.
 const MAX_WAL_INDEX: u64 = 0x7FFFFFFF;
 
+// Default DB settings.
 const DEFAULT_MONITOR_INTERVAL: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Debug)]
@@ -247,6 +251,10 @@ impl Database {
         Ok((db, db_receiver))
     }
 
+    fn calc_wal_size(&self, n: u32) -> u64 {
+        WAL_HEADER_SIZE as u64 + (WAL_FRAME_HEADER_SIZE as u64 + self.page_size as u64) * n as u64
+    }
+
     // copy pending data from wal to shadow wal
     async fn sync(&mut self) -> Result<()> {
         debug!("sync database: {}", self.config.db);
@@ -289,9 +297,24 @@ impl Database {
         // If WAL size is greater than min threshold, attempt checkpoint.
         let mut checkpoint = false;
         let mut checkmode = CHECKPOINT_MODE_PASSIVE;
+        if self.config.truncate_page_number > 0
+            && orig_wal_size >= self.calc_wal_size(self.config.truncate_page_number)
+        {
+            checkpoint = true;
+            checkmode = CHECKPOINT_MODE_TRUNCATE;
+        } else if self.config.max_checkpoint_page_number > 0
+            && new_wal_size >= self.calc_wal_size(self.config.max_checkpoint_page_number)
+        {
+            checkpoint = true;
+            checkmode = CHECKPOINT_MODE_RESTART;
+        } else if new_wal_size >= self.calc_wal_size(self.config.min_checkpoint_page_number) {
+            checkpoint = true;
+        }
 
         if checkpoint {
             changed = true;
+
+            self.do_checkpoint(&info.generation, checkmode)?;
         }
 
         self.clean()?;
@@ -321,6 +344,13 @@ impl Database {
             index,
             offset: align_frame(self.page_size, file_metadata.size()),
         })
+    }
+
+    // CurrentShadowWALPath returns the path to the last shadow WAL in a generation.
+    fn current_shadow_wal_file(&self, generation: &str) -> Result<String> {
+        let (index, _total_size) = self.current_shadow_index(&generation)?;
+
+        Ok(self.shadow_wal_file(&generation, index))
     }
 
     // returns the path of a single shadow WAL file.
@@ -379,7 +409,6 @@ impl Database {
                 }
             })
         });
-        // self.clean_wal()?;
 
         Ok(())
     }
@@ -747,13 +776,55 @@ impl Database {
     // checkpoint performs a checkpoint on the WAL file and initializes a
     // new shadow WAL file.
     fn do_checkpoint(&mut self, generation: &str, mode: &str) -> Result<()> {
+        // Try getting a checkpoint lock, will fail during snapshots.
         if self.checkpoint_mutex.try_lock().is_none() {
             return Ok(());
         }
 
+        let shadow_wal_file = self.current_shadow_wal_file(generation)?;
+
+        // Read WAL header before checkpoint to check if it has been restarted.
+        let wal_header1 = WALHeader::read(&self.wal_file)?;
+
+        // Copy shadow WAL before checkpoint to copy as much as possible.
+        self.copy_to_shadow_wal(&shadow_wal_file)?;
+
         // Execute checkpoint and immediately issue a write to the WAL to ensure
         // a new page is written.
         self.exec_checkpoint(mode)?;
+
+        self.connection.execute(
+            "INSERT INTO _litesync_seq (id, seq) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET seq = seq + 1;",
+            (),
+        )?;
+
+        // If WAL hasn't been restarted, exit.
+        let wal_header2 = WALHeader::read(&self.wal_file)?;
+        if wal_header1 == wal_header2 {
+            return Ok(());
+        }
+
+        // Start a transaction. This will be promoted immediately after.
+        let mut connection = Connection::open(&self.config.db)?;
+        let mut tx = connection.transaction()?;
+        tx.set_drop_behavior(DropBehavior::Rollback);
+
+        // Insert into the lock table to promote to a write tx. The lock table
+        // insert will never actually occur because our tx will be rolled back,
+        // however, it will ensure our tx grabs the write lock. Unfortunately,
+        // we can't call "BEGIN IMMEDIATE" as we are already in a transaction.
+        tx.execute("INSERT INTO _litesync_lock (id) VALUES (1);", ())?;
+
+        // Copy the end of the previous WAL before starting a new shadow WAL.
+        self.copy_to_shadow_wal(&shadow_wal_file)?;
+
+        // Parse index of current shadow WAL file.
+        let index = parse_wal_path(&shadow_wal_file)?;
+
+        // Start a new shadow WAL file with next index.
+        let new_shadow_wal_file = self.shadow_wal_file(generation, index + 1);
+        self.init_shadow_wal_file(&new_shadow_wal_file)?;
+
         Ok(())
     }
 
