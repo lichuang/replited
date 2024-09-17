@@ -13,7 +13,7 @@ use crate::sqlite::WAL_HEADER_SIZE;
 pub struct WALHeader {
     pub data: Vec<u8>,
     pub salt: u64,
-    pub page_size: u32,
+    pub page_size: u64,
     pub is_big_endian: bool,
 }
 
@@ -24,7 +24,7 @@ impl WALHeader {
             return Err(Error::SqliteWalHeaderError("Invalid WAL file"));
         }
 
-        let mut data: Vec<u8> = vec![0u8; WAL_HEADER_SIZE];
+        let mut data: Vec<u8> = vec![0u8; WAL_HEADER_SIZE as usize];
         file.read_exact(&mut data)?;
 
         let magic: &[u8] = &data[0..4];
@@ -39,7 +39,7 @@ impl WALHeader {
 
         // check page size
         let page_size = &data[8..12];
-        let page_size = u32::from_be_bytes(page_size.try_into()?);
+        let page_size = u32::from_be_bytes(page_size.try_into()?) as u64;
         if !is_power_of_two(page_size) || page_size < 1024 {
             return Err(Error::SqliteWalHeaderError("Invalid page size"));
         }

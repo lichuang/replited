@@ -10,9 +10,9 @@ use super::StorageParams;
 use crate::error::Error;
 use crate::error::Result;
 
-const DEFAULT_MIN_CHECKPOINT_PAGE_NUMBER: u32 = 1000;
-const DEFAULT_MAX_CHECKPOINT_PAGE_NUMBER: u32 = 10000;
-const DEFAULT_TRUNCATE_PAGE_NUMBER: u32 = 500000;
+const DEFAULT_MIN_CHECKPOINT_PAGE_NUMBER: u64 = 1000;
+const DEFAULT_MAX_CHECKPOINT_PAGE_NUMBER: u64 = 10000;
+const DEFAULT_TRUNCATE_PAGE_NUMBER: u64 = 500000;
 const DEFAULT_CHECKPOINT_INTERVAL_SECS: u64 = 60;
 
 #[derive(Clone, PartialEq, Eq, Deserialize)]
@@ -113,7 +113,7 @@ pub struct DatabaseConfig {
     // A passive checkpoint will attempt a checkpoint but fail if there are
     // active transactions occurring at the same time.
     #[serde(default = "default_min_checkpoint_page_number")]
-    pub min_checkpoint_page_number: u32,
+    pub min_checkpoint_page_number: u64,
 
     // Maximum threshold of WAL size, in pages, before a forced checkpoint.
     // A forced checkpoint will block new transactions and wait for existing
@@ -122,7 +122,7 @@ pub struct DatabaseConfig {
     // If zero, no checkpoints are forced. This can cause the WAL to grow
     // unbounded if there are always read transactions occurring.
     #[serde(default = "default_max_checkpoint_page_number")]
-    pub max_checkpoint_page_number: u32,
+    pub max_checkpoint_page_number: u64,
 
     // Threshold of WAL size, in pages, before a forced truncation checkpoint.
     // A forced truncation checkpoint will block new transactions and wait for
@@ -133,7 +133,7 @@ pub struct DatabaseConfig {
     // unbounded if there's a sudden spike of changes between other
     // checkpoints.
     #[serde(default = "default_truncate_page_number")]
-    pub truncate_page_number: u32,
+    pub truncate_page_number: u64,
 
     // Seconds between automatic checkpoints in the WAL. This is done to allow
     // more fine-grained WAL files so that restores can be performed with
@@ -142,15 +142,15 @@ pub struct DatabaseConfig {
     pub checkpoint_interval_secs: u64,
 }
 
-fn default_min_checkpoint_page_number() -> u32 {
+fn default_min_checkpoint_page_number() -> u64 {
     DEFAULT_MIN_CHECKPOINT_PAGE_NUMBER
 }
 
-fn default_max_checkpoint_page_number() -> u32 {
+fn default_max_checkpoint_page_number() -> u64 {
     DEFAULT_MAX_CHECKPOINT_PAGE_NUMBER
 }
 
-fn default_truncate_page_number() -> u32 {
+fn default_truncate_page_number() -> u64 {
     DEFAULT_TRUNCATE_PAGE_NUMBER
 }
 

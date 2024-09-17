@@ -11,6 +11,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::SystemTime;
 
 use log::debug;
 use log::error;
@@ -73,7 +74,7 @@ pub struct DatabaseInfo {
     // Path to the database metadata.
     pub meta_dir: String,
 
-    pub page_size: u32,
+    pub page_size: u64,
 }
 
 pub struct Database {
@@ -84,7 +85,7 @@ pub struct Database {
 
     // full wal file name of db file
     wal_file: String,
-    page_size: u32,
+    page_size: u64,
 
     connection: Connection,
 
@@ -117,6 +118,7 @@ impl WalGenerationPos {
 #[derive(Debug, Default)]
 struct SyncInfo {
     pub generation: String,
+    pub db_mod_time: Option<SystemTime>,
     pub index: u64,
     pub wal_size: u64,
     pub shadow_wal_file: String,
@@ -251,8 +253,8 @@ impl Database {
         Ok((db, db_receiver))
     }
 
-    fn calc_wal_size(&self, n: u32) -> u64 {
-        WAL_HEADER_SIZE as u64 + (WAL_FRAME_HEADER_SIZE as u64 + self.page_size as u64) * n as u64
+    fn calc_wal_size(&self, n: u64) -> u64 {
+        WAL_HEADER_SIZE + (WAL_FRAME_HEADER_SIZE + self.page_size) * n
     }
 
     // copy pending data from wal to shadow wal
@@ -260,16 +262,13 @@ impl Database {
         debug!("sync database: {}", self.config.db);
 
         // make sure wal file has at least one frame in it
-        if let Err(e) = self.ensure_wal_exists() {
-            error!("ensure_wal_exists error: {:?}", e);
-            return Ok(());
-        }
+        self.ensure_wal_exists()?;
 
         // Verify our last sync matches the current state of the WAL.
         // This ensures that we have an existing generation & that the last sync
         // position of the real WAL hasn't been overwritten by another process.
         let mut info = self.verify()?;
-        debug!("sync info: {:?}", info);
+        debug!("db {} sync info: {:?}", self.config.db, info);
 
         // Track if anything in the shadow WAL changes and then notify at the end.
         let mut changed =
@@ -279,13 +278,13 @@ impl Database {
             // Start new generation & notify user via log message.
             info.generation = self.create_generation().await?;
             info!(
-                "sync new generation: {}, reason: {}",
-                info.generation, reason
+                "db {} sync new generation: {}, reason: {}",
+                self.config.db, info.generation, reason
             );
 
             // Clear shadow wal info.
             info.shadow_wal_file = shadow_wal_file(&self.meta_dir, &info.generation, 0);
-            info.shadow_wal_size = WAL_HEADER_SIZE as u64;
+            info.shadow_wal_size = WAL_HEADER_SIZE;
             info.restart = false;
             info.reason = None;
         }
@@ -309,6 +308,18 @@ impl Database {
             checkmode = CHECKPOINT_MODE_RESTART;
         } else if new_wal_size >= self.calc_wal_size(self.config.min_checkpoint_page_number) {
             checkpoint = true;
+        } else if self.config.checkpoint_interval_secs > 0 {
+            if let Some(db_mod_time) = &info.db_mod_time {
+                let now = SystemTime::now();
+
+                if let Ok(duration) = now.duration_since(db_mod_time.clone()) {
+                    if duration.as_secs() > self.config.checkpoint_interval_secs
+                        && new_wal_size > self.calc_wal_size(1)
+                    {
+                        checkpoint = true;
+                    }
+                }
+            }
         }
 
         if checkpoint {
@@ -317,6 +328,7 @@ impl Database {
             self.do_checkpoint(&info.generation, checkmode)?;
         }
 
+        // Clean up any old files.
         self.clean()?;
 
         // notify the database has been changed
@@ -327,6 +339,7 @@ impl Database {
                 .await?;
         }
 
+        debug!("sync db {} ok", self.config.db);
         Ok(())
     }
 
@@ -624,7 +637,7 @@ impl Database {
             )));
         }
 
-        if stat.len() >= WAL_HEADER_SIZE as u64 {
+        if stat.len() >= WAL_HEADER_SIZE {
             return Ok(());
         }
 
@@ -639,20 +652,26 @@ impl Database {
 
     // current_shadow_index returns the current WAL index & total size.
     fn current_shadow_index(&self, generation: &str) -> Result<(u64, u64)> {
-        let wal_dir_path = shadow_wal_dir(&self.meta_dir, generation);
-        let entries = fs::read_dir(&wal_dir_path)?;
+        let wal_dir = shadow_wal_dir(&self.meta_dir, generation);
+        if !fs::exists(&wal_dir)? {
+            return Ok((0, 0));
+        }
 
+        let entries = fs::read_dir(&wal_dir)?;
         let mut total_size = 0;
         let mut index = 0;
         for entry in entries {
             if let Ok(entry) = entry {
                 let file_type = entry.file_type()?;
+                let file_name = entry.file_name().into_string().unwrap();
+                if !fs::exists(&file_name)? {
+                    continue;
+                }
                 if !file_type.is_file() {
                     continue;
                 }
                 let metadata = entry.metadata()?;
                 total_size += metadata.size();
-                let file_name = entry.file_name().into_string().unwrap();
                 match parse_wal_path(&file_name) {
                     Err(e) => {
                         debug!("invald wal file {:?}", file_name);
@@ -666,9 +685,7 @@ impl Database {
                 }
             }
         }
-        if total_size == 0 {
-            return Err(Error::StorageNotFound("no shadow wal file"));
-        }
+
         Ok((index, total_size))
     }
 
@@ -693,6 +710,7 @@ impl Database {
     // not blank, verification failed and a new generation should be started.
     fn verify(&mut self) -> Result<SyncInfo> {
         let mut info = SyncInfo::default();
+
         // get existing generation
         let generation = self.current_generation()?;
         if generation.is_empty() {
@@ -701,7 +719,12 @@ impl Database {
         }
         info.generation = generation;
 
-        // let db_file = fs::metadata(&self.config.db)?;
+        let db_file = fs::metadata(&self.config.db)?;
+        if let Ok(db_mod_time) = db_file.modified() {
+            info.db_mod_time = Some(db_mod_time);
+        } else {
+            info.db_mod_time = None;
+        }
 
         // total bytes of real WAL.
         let wal_file = fs::metadata(&self.wal_file)?;
@@ -723,7 +746,7 @@ impl Database {
         }
         let shadow_wal_file = fs::metadata(&info.shadow_wal_file)?;
         info.shadow_wal_size = align_frame(self.page_size, shadow_wal_file.len());
-        if info.shadow_wal_size < WAL_HEADER_SIZE as u64 {
+        if info.shadow_wal_size < WAL_HEADER_SIZE {
             info.reason = Some("short shadow wal".to_string());
             return Ok(info);
         }
@@ -736,19 +759,18 @@ impl Database {
         // Compare WAL headers. Start a new shadow WAL if they are mismatched.
         let wal_header = WALHeader::read(&self.wal_file)?;
         let shadow_wal_header = WALHeader::read(&info.shadow_wal_file)?;
-        if wal_header.data != shadow_wal_header.data {
+        if wal_header != shadow_wal_header {
             info.restart = true;
         }
 
-        if info.shadow_wal_size == WAL_HEADER_SIZE as u64 && info.restart {
+        if info.shadow_wal_size == WAL_HEADER_SIZE && info.restart {
             info.reason = Some("wal header only, mismatched".to_string());
             return Ok(info);
         }
 
         // Verify last page synced still matches.
-        if info.shadow_wal_size > WAL_HEADER_SIZE as u64 {
-            let offset =
-                info.shadow_wal_size - self.page_size as u64 - WAL_FRAME_HEADER_SIZE as u64;
+        if info.shadow_wal_size > WAL_HEADER_SIZE {
+            let offset = info.shadow_wal_size - self.page_size - WAL_FRAME_HEADER_SIZE;
 
             let mut wal_file = OpenOptions::new().read(true).open(&self.wal_file)?;
             wal_file.seek(SeekFrom::Start(offset))?;
@@ -758,7 +780,7 @@ impl Database {
             shadow_wal_file.seek(SeekFrom::Start(offset))?;
             let shadow_wal_last_frame =
                 WALFrame::read_without_checksum(&mut shadow_wal_file, self.page_size, 0)?;
-            if wal_last_frame.data != shadow_wal_last_frame.data {
+            if wal_last_frame != shadow_wal_last_frame {
                 info.reason = Some("wal overwritten by another process".to_string());
                 return Ok(info);
             }

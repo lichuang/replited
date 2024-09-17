@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::time::SystemTimeError;
 
 use crate::database::DbCommand;
 use crate::error::Error;
@@ -104,6 +105,12 @@ impl From<tokio::sync::mpsc::error::SendError<DbCommand>> for Error {
 
 impl From<tokio::sync::broadcast::error::RecvError> for Error {
     fn from(e: tokio::sync::broadcast::error::RecvError) -> Error {
+        Error::from_std_error(e)
+    }
+}
+
+impl From<SystemTimeError> for Error {
+    fn from(e: SystemTimeError) -> Error {
         Error::from_std_error(e)
     }
 }
