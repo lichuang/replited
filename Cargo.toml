@@ -1,5 +1,5 @@
 [package]
-name = "litesync"
+name = "replited"
 version = "0.1.0"
 edition = "2021"
 description = ""
@@ -51,7 +51,7 @@ tokio = { version = "1.35.0", features = ["full"] }
 uuid = { version = "1.10.0", features = ["v7"] }
 
 [[bin]]
-name = "litesync"
+name = "replited"
 path = "src/main.rs"
 doctest = false
 test = true

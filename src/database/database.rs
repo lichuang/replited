@@ -147,12 +147,12 @@ impl Database {
 
     fn create_internal_tables(connection: &Connection) -> Result<()> {
         connection.execute(
-            "CREATE TABLE IF NOT EXISTS _litesync_seq (id INTEGER PRIMARY KEY, seq INTEGER);",
+            "CREATE TABLE IF NOT EXISTS _replited_seq (id INTEGER PRIMARY KEY, seq INTEGER);",
             (),
         )?;
 
         connection.execute(
-            "CREATE TABLE IF NOT EXISTS _litesync_lock (id INTEGER);",
+            "CREATE TABLE IF NOT EXISTS _replited_lock (id INTEGER);",
             (),
         )?;
         Ok(())
@@ -163,7 +163,7 @@ impl Database {
         if self.tx_connection.is_none() {
             let tx_connection = Connection::open(&self.config.db)?;
             // Execute read query to obtain read lock.
-            tx_connection.execute_batch("BEGIN;SELECT COUNT(1) FROM _litesync_seq;")?;
+            tx_connection.execute_batch("BEGIN;SELECT COUNT(1) FROM _replited_seq;")?;
             self.tx_connection = Some(tx_connection);
         }
 
@@ -180,12 +180,12 @@ impl Database {
         Ok(())
     }
 
-    // init litesync directory
+    // init replited directory
     fn init_directory(config: &DatabaseConfig) -> Result<String> {
         let file_path = PathBuf::from(&config.db);
         let db_name = file_path.file_name().unwrap().to_str().unwrap();
         let dir_path = file_path.parent().unwrap_or_else(|| Path::new("."));
-        let meta_dir = format!("{}/.{}-litesync/", dir_path.to_str().unwrap(), db_name,);
+        let meta_dir = format!("{}/.{}-replited/", dir_path.to_str().unwrap(), db_name,);
         fs::create_dir_all(&meta_dir)?;
 
         Ok(meta_dir)
@@ -643,7 +643,7 @@ impl Database {
 
         // create transaction that updates the internal table.
         self.connection.execute(
-            "INSERT INTO _litesync_seq (id, seq) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET seq = seq + 1;",
+            "INSERT INTO _replited_seq (id, seq) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET seq = seq + 1;",
             (),
         )?;
 
@@ -816,7 +816,7 @@ impl Database {
         self.exec_checkpoint(mode)?;
 
         self.connection.execute(
-            "INSERT INTO _litesync_seq (id, seq) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET seq = seq + 1;",
+            "INSERT INTO _replited_seq (id, seq) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET seq = seq + 1;",
             (),
         )?;
 
@@ -835,7 +835,7 @@ impl Database {
         // insert will never actually occur because our tx will be rolled back,
         // however, it will ensure our tx grabs the write lock. Unfortunately,
         // we can't call "BEGIN IMMEDIATE" as we are already in a transaction.
-        tx.execute("INSERT INTO _litesync_lock (id) VALUES (1);", ())?;
+        tx.execute("INSERT INTO _replited_lock (id) VALUES (1);", ())?;
 
         // Copy the end of the previous WAL before starting a new shadow WAL.
         self.copy_to_shadow_wal(&shadow_wal_file)?;

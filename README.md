@@ -1,1 +1,1 @@
-# litesync
+replited(Replicate SQLITE Daemon)

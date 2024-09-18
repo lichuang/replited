@@ -1,6 +1,6 @@
 [log]
 level = "Debug"
-dir = "/var/log/litesync/"
+dir = "/var/log/replited/"
 
 [[database]]
 db = "/Users/codedump/local/sqlite/test.db"
@@ -8,7 +8,7 @@ db = "/Users/codedump/local/sqlite/test.db"
 [[database.replicate]]
 allow_insecure = true
 params.type = "Fs"
-params.root = "/Users/codedump/local/litesync"
+params.root = "/Users/codedump/local/replited"
 
 #[[database.replicate]]
 #allow_insecure = true

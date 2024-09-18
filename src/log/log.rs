@@ -18,8 +18,8 @@ pub fn init_log(log_config: LogConfig) -> Result<()> {
     let level: LevelFilter = log_config.level.into();
     let log_line_pattern = "[{d(%Y-%m-%d %H:%M:%s)} {({l}):5.5}] {m}{n}";
 
-    let log_file = format!("{}/litesync_log", log_config.dir);
-    let log_file_pattern = format!("{}/litesync_log_{{}}", log_config.dir);
+    let log_file = format!("{}/replited_log", log_config.dir);
+    let log_file_pattern = format!("{}/replited_log_{{}}", log_config.dir);
     let roller_count = 9;
     let roller_base = 1;
     let fixed_window_roller = FixedWindowRoller::builder()

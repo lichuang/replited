@@ -90,7 +90,7 @@ impl Default for LogConfig {
     fn default() -> Self {
         Self {
             level: LogLevel::Info,
-            dir: "/var/log/litesync".to_string(),
+            dir: "/var/log/replited".to_string(),
         }
     }
 }
