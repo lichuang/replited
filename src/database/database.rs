@@ -36,6 +36,7 @@ use crate::base::compress_file;
 use crate::base::generation_dir;
 use crate::base::generation_file_path;
 use crate::base::generations_dir;
+use crate::base::parent_dir;
 use crate::base::parse_wal_path;
 use crate::base::path_base;
 use crate::base::shadow_wal_dir;
@@ -44,6 +45,7 @@ use crate::config::DatabaseConfig;
 use crate::error::Error;
 use crate::error::Result;
 use crate::sqlite::align_frame;
+use crate::sqlite::checksum;
 use crate::sqlite::read_last_checksum;
 use crate::sqlite::WALFrame;
 use crate::sqlite::WALHeader;
@@ -514,13 +516,20 @@ impl Database {
 
         // read wal file header
         let wal_header = WALHeader::read(&self.wal_file)?;
+        println!("after read");
         if wal_header.page_size != self.page_size {
-            return Err(Error::SqliteWalHeaderError("Invalid page size"));
+            return Err(Error::SqliteInvalidWalHeaderError("Invalid page size"));
         }
 
         // create new shadow wal file
         let db_file_metadata = fs::metadata(&self.config.db)?;
         let mode = db_file_metadata.mode();
+        let dir = parent_dir(&shadow_wal);
+        if let Some(dir) = dir {
+            fs::create_dir_all(&dir)?;
+        } else {
+            debug!("db {} cannot find parent dir of shadow wal", self.config.db);
+        }
         let mut shadow_wal_file = fs::File::create(&shadow_wal)?;
         let mut permissions = shadow_wal_file.metadata()?.permissions();
         permissions.set_mode(mode);
@@ -574,17 +583,15 @@ impl Database {
 
         // seek on real db wal
         let mut wal_file = File::open(&self.wal_file)?;
-
-        let mut shadow_wal_file = OpenOptions::new().read(true).write(true).open(shadow_wal)?;
         wal_file.seek(SeekFrom::Start(orig_shadow_wal_size))?;
         // read last checksum of shadow wal file
-        let (ck1, ck2) = read_last_checksum(&mut shadow_wal_file, self.page_size)?;
+        let (ck1, ck2) = read_last_checksum(&shadow_wal, self.page_size)?;
         let mut offset = orig_shadow_wal_size;
         let mut last_commit_size = orig_shadow_wal_size;
         // Read through WAL from last position to find the page of the last
         // committed transaction.
         loop {
-            let wal_frame = WALFrame::read(&mut wal_file, ck1, ck2, self.page_size, &wal_header);
+            let wal_frame = WALFrame::read(&mut wal_file, self.page_size);
             let wal_frame = match wal_frame {
                 Ok(wal_frame) => wal_frame,
                 Err(e) => {
@@ -597,6 +604,25 @@ impl Database {
                     }
                 }
             };
+            if wal_frame.salt1 != wal_header.salt1 || wal_frame.salt2 != wal_header.salt2 {
+                debug!(
+                    "db {} copy shadow wal frame salt mismatch at offset {}",
+                    self.config.db, offset
+                );
+                break;
+            }
+
+            // frame header
+            let (ck1, ck2) = checksum(&wal_frame.data[0..8], ck1, ck2, wal_header.is_big_endian);
+            // frame data
+            let (ck1, ck2) = checksum(&wal_frame.data[24..], ck1, ck2, wal_header.is_big_endian);
+            if ck1 != wal_frame.checksum1 || ck2 != wal_frame.checksum2 {
+                debug!(
+                    "db {} copy shadow wal checksum mismatch at offset {}",
+                    self.config.db, offset
+                );
+                break;
+            }
 
             // Write page to temporary WAL file.
             temp_file.write(&wal_frame.data)?;
@@ -774,12 +800,11 @@ impl Database {
 
             let mut wal_file = OpenOptions::new().read(true).open(&self.wal_file)?;
             wal_file.seek(SeekFrom::Start(offset))?;
-            let wal_last_frame = WALFrame::read_without_checksum(&mut wal_file, self.page_size, 0)?;
+            let wal_last_frame = WALFrame::read(&mut wal_file, self.page_size)?;
 
             let mut shadow_wal_file = OpenOptions::new().read(true).open(&info.shadow_wal_file)?;
             shadow_wal_file.seek(SeekFrom::Start(offset))?;
-            let shadow_wal_last_frame =
-                WALFrame::read_without_checksum(&mut shadow_wal_file, self.page_size, 0)?;
+            let shadow_wal_last_frame = WALFrame::read(&mut shadow_wal_file, self.page_size)?;
             if wal_last_frame != shadow_wal_last_frame {
                 info.reason = Some("wal overwritten by another process".to_string());
                 return Ok(info);

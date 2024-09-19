@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::Read;
 
+use super::from_be_bytes_at;
 use crate::base::is_power_of_two;
 use crate::error::Error;
 use crate::error::Result;
@@ -12,7 +13,8 @@ use crate::sqlite::WAL_HEADER_SIZE;
 #[derive(Clone, Debug, PartialEq)]
 pub struct WALHeader {
     pub data: Vec<u8>,
-    pub salt: u64,
+    pub salt1: u32,
+    pub salt2: u32,
     pub page_size: u64,
     pub is_big_endian: bool,
 }
@@ -21,7 +23,7 @@ impl WALHeader {
     // see: https://www.sqlite.org/fileformat2.html#walformat
     pub fn read_from(file: &mut File) -> Result<WALHeader> {
         if file.metadata()?.len() < WAL_HEADER_SIZE as u64 {
-            return Err(Error::SqliteWalHeaderError("Invalid WAL file"));
+            return Err(Error::SqliteInvalidWalHeaderError("Invalid WAL file"));
         }
 
         let mut data: Vec<u8> = vec![0u8; WAL_HEADER_SIZE as usize];
@@ -34,34 +36,34 @@ impl WALHeader {
         } else if magic == &WAL_HEADER_LITTLE_ENDIAN_MAGIC {
             false
         } else {
-            return Err(Error::SqliteWalHeaderError("Unknown WAL file header magic"));
+            return Err(Error::SqliteInvalidWalHeaderError(
+                "Unknown WAL file header magic",
+            ));
         };
 
         // check page size
-        let page_size = &data[8..12];
-        let page_size = u32::from_be_bytes(page_size.try_into()?) as u64;
+        let page_size = from_be_bytes_at(&data, 8)? as u64;
         if !is_power_of_two(page_size) || page_size < 1024 {
-            return Err(Error::SqliteWalHeaderError("Invalid page size"));
+            return Err(Error::SqliteInvalidWalHeaderError("Invalid page size"));
         }
 
         // checksum
         let (s1, s2) = checksum(&data[0..24], 0, 0, is_big_endian);
-
-        let checksum1 = &data[24..28];
-        let checksum1 = u32::from_be_bytes(checksum1.try_into()?);
-        let checksum2 = &data[28..32];
-        let checksum2 = u32::from_be_bytes(checksum2.try_into()?);
-
+        let checksum1 = from_be_bytes_at(&data, 24)?;
+        let checksum2 = from_be_bytes_at(&data, 28)?;
         if checksum1 != s1 || checksum2 != s2 {
-            return Err(Error::SqliteWalHeaderError("Invalid wal header checksum"));
+            return Err(Error::SqliteInvalidWalHeaderError(
+                "Invalid wal header checksum",
+            ));
         }
 
-        let s = &data[16..24];
-        let salt = u64::from_be_bytes(s.try_into()?);
+        let salt1 = from_be_bytes_at(&data, 16)?;
+        let salt2 = from_be_bytes_at(&data, 20)?;
 
         Ok(WALHeader {
             data,
-            salt,
+            salt1,
+            salt2,
             page_size,
             is_big_endian,
         })

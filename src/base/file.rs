@@ -25,6 +25,12 @@ pub fn path_base(path: &str) -> Result<String> {
         .ok_or(Error::InvalidPath(format!("invalid path {}", path)))
 }
 
+pub fn parent_dir(path: &str) -> Option<String> {
+    let path = Path::new(path);
+    path.parent()
+        .map(|parent| parent.to_string_lossy().into_owned())
+}
+
 // parse wal file path, return wal index
 pub fn parse_wal_path(path: &str) -> Result<u64> {
     let base = path_base(path)?;
@@ -188,14 +194,14 @@ pub fn shadow_wal_file(meta_dir: &str, generation: &str, index: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::base::file::format_walsegment_path;
-    use crate::base::file::parse_wal_path;
-    use crate::base::file::path_base;
-    use crate::base::format_snapshot_path;
-    use crate::base::format_wal_path;
-    use crate::base::parse_snapshot_path;
-    use crate::base::parse_wal_segment_path;
-    use crate::error::Error;
+    use super::format_snapshot_path;
+    use super::format_wal_path;
+    use super::format_walsegment_path;
+    use super::parent_dir;
+    use super::parse_snapshot_path;
+    use super::parse_wal_path;
+    use super::parse_wal_segment_path;
+    use super::path_base;
     use crate::error::Result;
 
     #[test]
@@ -256,6 +262,15 @@ mod tests {
         let (index, offset) = parse_wal_segment_path(&path)?;
         assert_eq!(index, 19);
         assert_eq!(offset, 20);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parent_dir() -> Result<()> {
+        let path = "/b/c/00000019_00000020.wal.lz4";
+        let dir = parent_dir(path);
+        assert_eq!(dir, Some("/b/c".to_string()));
 
         Ok(())
     }

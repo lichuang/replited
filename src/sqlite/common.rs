@@ -1,5 +1,6 @@
-use std::fs::File;
+use std::fs::OpenOptions;
 use std::os::unix::fs::FileExt;
+use std::os::unix::fs::MetadataExt;
 
 use crate::error::Error;
 use crate::error::Result;
@@ -46,14 +47,15 @@ pub fn checksum(data: &[u8], s1: u32, s2: u32, is_big_endian: bool) -> (u32, u32
     (s1, s2)
 }
 
-pub fn read_last_checksum(file: &mut File, page_size: u64) -> Result<(u32, u32)> {
+pub fn read_last_checksum(file_name: &str, page_size: u64) -> Result<(u32, u32)> {
+    let file = OpenOptions::new().read(true).open(file_name)?;
     let metadata = file.metadata()?;
-    let fsize = metadata.len();
-    let sz = align_frame(page_size, fsize);
+    let fsize = metadata.size();
     let offset = if fsize > WAL_HEADER_SIZE {
+        let sz = align_frame(page_size, fsize);
         sz - page_size - WAL_FRAME_HEADER_SIZE + WAL_HEADER_CHECKSUM_OFFSET
     } else {
-        WAL_HEADER_CHECKSUM_OFFSET as u64
+        WAL_HEADER_CHECKSUM_OFFSET
     };
 
     let mut buf = [0u8; 8];
@@ -64,10 +66,8 @@ pub fn read_last_checksum(file: &mut File, page_size: u64) -> Result<(u32, u32)>
         ));
     }
 
-    let checksum1 = &buf[0..4];
-    let checksum1 = u32::from_be_bytes(checksum1.try_into()?);
-    let checksum2 = &buf[4..8];
-    let checksum2 = u32::from_be_bytes(checksum2.try_into()?);
+    let checksum1 = from_be_bytes_at(&buf, 0)?;
+    let checksum2 = from_be_bytes_at(&buf, 4)?;
 
     Ok((checksum1, checksum2))
 }
@@ -81,4 +81,9 @@ pub fn align_frame(page_size: u64, offset: u64) -> u64 {
     let frame_num = (offset - WAL_HEADER_SIZE) / frame_size;
 
     (frame_num * frame_size) + WAL_HEADER_SIZE
+}
+
+pub(crate) fn from_be_bytes_at(data: &[u8], offset: usize) -> Result<u32> {
+    let p = &data[offset..offset + 4];
+    Ok(u32::from_be_bytes(p.try_into()?))
 }

@@ -69,11 +69,12 @@ build_error! {
     // sqlite error
     SqliteError(120),
     SqliteWalError(121),
-    SqliteWalHeaderError(122),
-    SqliteWalFrameHeaderError(123),
-    NoSnapshotError(124),
-    NoWalsegmentError(125),
-    BadShadowWalError(126),
+    SqliteInvalidWalHeaderError(122),
+    SqliteInvalidWalFrameHeaderError(123),
+    SqliteInvalidWalFrameError(124),
+    NoSnapshotError(125),
+    NoWalsegmentError(126),
+    BadShadowWalError(127),
 
     // other error
     PanicError(140),

@@ -159,10 +159,12 @@ impl Sync {
         let mut data = Vec::new();
 
         // Copy header if at offset zero.
-        let mut salt = 0;
+        let mut salt1 = 0;
+        let mut salt2 = 0;
         if init_pos.offset == 0 {
             let wal_header = WALHeader::read_from(&mut reader.file)?;
-            salt = wal_header.salt;
+            salt1 = wal_header.salt1;
+            salt2 = wal_header.salt2;
             data.extend_from_slice(&wal_header.data);
         }
 
@@ -175,9 +177,14 @@ impl Sync {
             let pos = reader.pos();
             debug_assert_eq!(pos.offset, align_frame(self.info.page_size, pos.offset));
 
-            let wal_frame =
-                WALFrame::read_without_checksum(&mut reader.file, self.info.page_size, salt)?;
-            salt = wal_frame.salt;
+            let wal_frame = WALFrame::read(&mut reader.file, self.info.page_size)?;
+
+            if (salt1 != 0 && salt1 != wal_frame.salt1) || (salt2 != 0 && salt2 != wal_frame.salt2)
+            {
+                return Err(Error::SqliteInvalidWalFrameError("Invalid WAL frame"));
+            }
+            salt1 = wal_frame.salt1;
+            salt2 = wal_frame.salt2;
 
             data.extend_from_slice(&wal_frame.data);
             reader.advance(wal_frame.data.len())?;

@@ -9,6 +9,7 @@ pub use compress::decompressed_data;
 pub use file::generation_dir;
 pub use file::generation_file_path;
 pub use file::generations_dir;
+pub use file::parent_dir;
 pub use file::parse_snapshot_path;
 pub use file::parse_wal_path;
 pub use file::parse_wal_segment_path;
