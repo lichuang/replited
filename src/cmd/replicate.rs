@@ -1,15 +1,20 @@
 use super::command::Command;
-use crate::config::Config;
+use crate::config::ReplicateConfig;
 use crate::database::run_database;
 use crate::error::Result;
+use crate::log::init_log;
 
 pub struct Replicate {
-    config: Config,
+    config: ReplicateConfig,
 }
 
 impl Replicate {
-    pub fn new(config: Config) -> Box<Self> {
-        Box::new(Replicate { config })
+    pub fn try_create(config: &str) -> Result<Box<Self>> {
+        let config = ReplicateConfig::load(config)?;
+        let log_config = config.log.clone();
+
+        init_log(log_config)?;
+        Ok(Box::new(Replicate { config }))
     }
 }
 

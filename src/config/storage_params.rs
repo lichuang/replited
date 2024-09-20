@@ -40,7 +40,7 @@ impl Display for StorageParams {
     }
 }
 
-/// Config for storage backend fs.
+/// ReplicateConfig for storage backend fs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StorageFsConfig {
     pub root: String,
@@ -56,7 +56,7 @@ impl Default for StorageFsConfig {
 
 pub static STORAGE_S3_DEFAULT_ENDPOINT: &str = "https://s3.amazonaws.com";
 
-/// Config for storage backend s3.
+/// ReplicateConfig for storage backend s3.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StorageS3Config {
     pub endpoint_url: String,

@@ -16,13 +16,13 @@ const DEFAULT_TRUNCATE_PAGE_NUMBER: u64 = 500000;
 const DEFAULT_CHECKPOINT_INTERVAL_SECS: u64 = 60;
 
 #[derive(Clone, PartialEq, Eq, Deserialize)]
-pub struct Config {
+pub struct ReplicateConfig {
     pub log: LogConfig,
 
-    pub database: Vec<DatabaseConfig>,
+    pub database: Vec<ReplicateDbConfig>,
 }
 
-impl Config {
+impl ReplicateConfig {
     pub fn load(config_file: &str) -> Result<Self> {
         let toml_str = match fs::read_to_string(config_file) {
             Ok(toml_str) => toml_str,
@@ -34,7 +34,7 @@ impl Config {
             }
         };
 
-        let config: Config = match toml::from_str(&toml_str) {
+        let config: ReplicateConfig = match toml::from_str(&toml_str) {
             Ok(config) => config,
             Err(e) => {
                 return Err(Error::ParseConfigFail(format!(
@@ -61,7 +61,46 @@ impl Config {
     }
 }
 
-/// Config for logging.
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+pub struct RestoreConfig {
+    pub log: LogConfig,
+
+    pub database: RestoreDbConfig,
+}
+
+impl RestoreConfig {
+    pub fn load(config_file: &str) -> Result<Self> {
+        let toml_str = match fs::read_to_string(config_file) {
+            Ok(toml_str) => toml_str,
+            Err(e) => {
+                return Err(Error::ReadConfigFail(format!(
+                    "read config file {} fail: {:?}",
+                    config_file, e,
+                )));
+            }
+        };
+
+        let config: RestoreConfig = match toml::from_str(&toml_str) {
+            Ok(config) => config,
+            Err(e) => {
+                return Err(Error::ParseConfigFail(format!(
+                    "parse config file {} fail: {:?}",
+                    config_file, e,
+                )));
+            }
+        };
+
+        config.validate()?;
+        Ok(config)
+    }
+
+    fn validate(&self) -> Result<()> {
+        self.database.validate()?;
+        Ok(())
+    }
+}
+
+/// ReplicateConfig for logging.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct LogConfig {
     pub level: LogLevel,
@@ -107,7 +146,22 @@ impl Display for LogConfig {
 }
 
 #[derive(Clone, PartialEq, Eq, Deserialize)]
-pub struct DatabaseConfig {
+pub struct RestoreDbConfig {
+    // db file full path
+    pub db: String,
+
+    // replicate of db file config
+    pub replicate: StorageConfig,
+}
+
+impl RestoreDbConfig {
+    fn validate(&self) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+pub struct ReplicateDbConfig {
     // db file full path
     pub db: String,
 
@@ -163,9 +217,9 @@ fn default_checkpoint_interval_secs() -> u64 {
     DEFAULT_CHECKPOINT_INTERVAL_SECS
 }
 
-impl Debug for DatabaseConfig {
+impl Debug for ReplicateDbConfig {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        f.debug_struct("DatabaseConfig")
+        f.debug_struct("ReplicateDbConfig")
             .field("db", &self.db)
             .field("storage", &self.replicate)
             .field(
@@ -176,7 +230,7 @@ impl Debug for DatabaseConfig {
     }
 }
 
-impl DatabaseConfig {
+impl ReplicateDbConfig {
     fn validate(&self) -> Result<()> {
         if self.replicate.is_empty() {
             return Err(Error::InvalidConfig(
