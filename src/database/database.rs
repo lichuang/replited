@@ -9,7 +9,6 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::SystemTime;
 
@@ -19,13 +18,10 @@ use log::info;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use rusqlite::DropBehavior;
-use tokio::runtime::Handle;
 use tokio::select;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::RwLock;
-use tokio::task::block_in_place;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use uuid::timestamp;
@@ -98,7 +94,7 @@ pub struct Database {
     sync_notifiers: Vec<Sender<SyncCommand>>,
     // sync: Vec<Sync>,
     sync_handle: Vec<JoinHandle<()>>,
-    syncs: Vec<Arc<RwLock<Sync>>>,
+    syncs: Vec<Sync>,
 
     // checkpoint mutex
     checkpoint_mutex: Mutex<()>,
@@ -417,13 +413,9 @@ impl Database {
     fn clean(&mut self) -> Result<()> {
         self.clean_generations()?;
 
-        block_in_place(move || {
-            Handle::current().block_on(async {
-                if let Err(e) = self.clean_wal().await {
-                    error!("db {} clean wal error: {:?}", self.config.db, e);
-                }
-            })
-        });
+        if let Err(e) = self.clean_wal() {
+            error!("db {} clean wal error: {:?}", self.config.db, e);
+        }
 
         Ok(())
     }
@@ -454,13 +446,12 @@ impl Database {
     }
 
     // removes WAL files that have been replicated.
-    async fn clean_wal(&self) -> Result<()> {
+    fn clean_wal(&self) -> Result<()> {
         let generation = self.current_generation()?;
 
         let mut min = None;
         for sync in &self.syncs {
             // let sync = sync.read().await;
-            let sync = sync.read().await;
             let mut position = sync.position();
             if position.generation != generation {
                 position = WalGenerationPos::default();
@@ -490,6 +481,7 @@ impl Database {
         // Remove all WAL files for the generation before the lowest index.
         let dir = shadow_wal_dir(&self.meta_dir, &generation);
         if !fs::exists(&dir)? {
+            println!("exists");
             return Ok(());
         }
         for entry in fs::read_dir(&dir)? {
@@ -516,7 +508,6 @@ impl Database {
 
         // read wal file header
         let wal_header = WALHeader::read(&self.wal_file)?;
-        println!("after read");
         if wal_header.page_size != self.page_size {
             return Err(Error::SqliteInvalidWalHeaderError("Invalid page size"));
         }
@@ -700,7 +691,7 @@ impl Database {
                 total_size += metadata.size();
                 match parse_wal_path(&file_name) {
                     Err(e) => {
-                        debug!("invald wal file {:?}", file_name);
+                        debug!("invald wal file {:?}, err:{:?}", file_name, e);
                         continue;
                     }
                     Ok(i) => {

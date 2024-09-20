@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use log::info;
+use parking_lot::RwLock;
 use tokio::select;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
 use super::sync_client::SnapshotInfo;
@@ -29,17 +29,18 @@ pub enum SyncCommand {
     Snapshot((WalGenerationPos, Vec<u8>)),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 enum SyncState {
     WaitDbChanged,
     WaitSnapshot,
 }
 
+#[derive(Debug, Clone)]
 pub struct Sync {
     index: usize,
     client: SyncClient,
     db_notifier: Sender<DbCommand>,
-    position: WalGenerationPos,
+    position: Arc<RwLock<WalGenerationPos>>,
     state: SyncState,
     info: DatabaseInfo,
 }
@@ -51,28 +52,29 @@ impl Sync {
         index: usize,
         db_notifier: Sender<DbCommand>,
         info: DatabaseInfo,
-    ) -> Result<Arc<RwLock<Self>>> {
-        Ok(Arc::new(RwLock::new(Self {
+    ) -> Result<Self> {
+        Ok(Self {
             index,
-            position: WalGenerationPos::default(),
+            position: Arc::new(RwLock::new(WalGenerationPos::default())),
             db_notifier,
             client: SyncClient::new(db, config)?,
             state: SyncState::WaitDbChanged,
             info,
-        })))
+        })
     }
 
-    pub fn start(s: Arc<RwLock<Sync>>, rx: Receiver<SyncCommand>) -> Result<JoinHandle<()>> {
+    pub fn start(s: Sync, rx: Receiver<SyncCommand>) -> Result<JoinHandle<()>> {
+        let s = s.clone();
         let handle = tokio::spawn(async move {
-            let _ = Sync::main(s.clone(), rx).await;
+            let _ = Sync::main(s, rx).await;
         });
 
         Ok(handle)
     }
 
-    pub async fn main(s: Arc<RwLock<Sync>>, rx: Receiver<SyncCommand>) -> Result<()> {
+    pub async fn main(s: Sync, rx: Receiver<SyncCommand>) -> Result<()> {
         let mut rx = rx;
-        let mut s = s.write().await;
+        let mut s = s;
         loop {
             select! {
                 cmd = rx.recv() => if let Some(cmd) = cmd {
@@ -151,7 +153,8 @@ impl Sync {
     }
 
     async fn sync_wal(&mut self) -> Result<()> {
-        let mut reader = ShadowWalReader::try_create(self.position.clone(), &self.info)?;
+        // let mut reader = ShadowWalReader::try_create(self.position.clone(), &self.info)?;
+        let mut reader = ShadowWalReader::try_create(WalGenerationPos::default(), &self.info)?;
 
         // Obtain initial position from shadow reader.
         // It may have moved to the next index if previous position was at the end.
@@ -197,12 +200,14 @@ impl Sync {
             .await?;
 
         // update position
-        self.position = reader.pos();
+        let mut position = self.position.write();
+        *position = reader.pos();
         Ok(())
     }
 
     pub fn position(&self) -> WalGenerationPos {
-        self.position.clone()
+        let position = self.position.read();
+        position.clone()
     }
 
     async fn command(&mut self, cmd: SyncCommand) -> Result<()> {
@@ -246,7 +251,11 @@ impl Sync {
         // Create a new snapshot and update the current replica position if
         // the generation on the database has changed.
         let generation = pos.generation.clone();
-        if generation != self.position.generation {
+        let position = {
+            let position = self.position.read();
+            position.clone()
+        };
+        if generation != position.generation {
             let snapshots = self.client.snapshots(&generation).await?;
             if snapshots.len() == 0 {
                 // Create snapshot if no snapshots exist for generation.
@@ -258,7 +267,7 @@ impl Sync {
             }
 
             let pos = self.calculate_generation_position(&generation).await?;
-            self.position = pos;
+            *self.position.write() = pos;
         }
 
         // Read all WAL files since the last position.

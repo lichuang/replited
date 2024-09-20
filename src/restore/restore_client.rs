@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::fs;
 
 use log::error;
 
@@ -19,7 +19,10 @@ impl RestoreClient {
 
     pub async fn run(&self, overwrite: bool) -> Result<()> {
         // Ensure output path does not already exist.
-        if !overwrite {}
+        if !overwrite && fs::exists(&self.db)? {
+            error!("db {} already exists but cannot overwrite", self.db);
+            return Err(Error::OverwriteDbError("cannot overwrite exist db"));
+        }
 
         Ok(())
     }
@@ -27,6 +30,8 @@ impl RestoreClient {
 
 pub async fn run_restore(config: &RestoreDbConfig, overwrite: bool) -> Result<()> {
     let restore = RestoreClient::try_create(config.db.clone(), config.replicate.clone())?;
+
+    restore.run(overwrite).await?;
 
     Ok(())
 }

@@ -237,6 +237,18 @@ impl ReplicateDbConfig {
                 "database MUST has at least one replicate config",
             ));
         }
+
+        if self.min_checkpoint_page_number == 0 {
+            return Err(Error::InvalidConfig(
+                "min_checkpoint_page_number cannot be zero",
+            ));
+        }
+
+        if self.min_checkpoint_page_number > self.max_checkpoint_page_number {
+            return Err(Error::InvalidConfig(
+                "min_checkpoint_page_number cannot bigger than max_checkpoint_page_number",
+            ));
+        }
         Ok(())
     }
 }

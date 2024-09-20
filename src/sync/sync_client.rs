@@ -12,6 +12,7 @@ use crate::config::StorageConfig;
 use crate::database::WalGenerationPos;
 use crate::error::Result;
 
+#[derive(Debug, Clone)]
 pub struct SyncClient {
     operator: Operator,
     root: String,
