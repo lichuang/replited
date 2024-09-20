@@ -1,11 +1,8 @@
-disallowed-methods = [
-]
+disallowed-methods = []
 
-disallowed-types = [
-]
+disallowed-types = []
 
-disallowed-macros = [
-]
+disallowed-macros = []
 
 avoid-breaking-exported-api = true
 too-many-arguments-threshold = 10

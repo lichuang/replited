@@ -49,6 +49,11 @@ impl Config {
     }
 
     fn validate(&self) -> Result<()> {
+        if self.database.is_empty() {
+            return Err(Error::InvalidConfig(
+                "config MUST has at least one database config",
+            ));
+        }
         for db in &self.database {
             db.validate()?;
         }
@@ -173,6 +178,11 @@ impl Debug for DatabaseConfig {
 
 impl DatabaseConfig {
     fn validate(&self) -> Result<()> {
+        if self.replicate.is_empty() {
+            return Err(Error::InvalidConfig(
+                "database MUST has at least one replicate config",
+            ));
+        }
         Ok(())
     }
 }

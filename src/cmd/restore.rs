@@ -1,34 +1,34 @@
 use super::command::Command;
 use crate::config::Config;
-use crate::database::run_database;
 use crate::error::Result;
+use crate::restore::run_restore;
 
-pub struct Replicate {
+pub struct Restore {
     config: Config,
 }
 
-impl Replicate {
+impl Restore {
     pub fn new(config: Config) -> Box<Self> {
-        Box::new(Replicate { config })
+        Box::new(Restore { config })
     }
 }
 
 #[async_trait::async_trait]
-impl Command for Replicate {
+impl Command for Restore {
     async fn run(&mut self) -> Result<()> {
         let mut handles = vec![];
-        for database in &self.config.database {
-            let datatase = database.clone();
+        for config in &self.config.database {
+            let config = config.clone();
             let handle = tokio::spawn(async move {
-                let _ = run_database(datatase).await;
+                let _ = run_restore(config).await;
             });
-
             handles.push(handle);
         }
 
         for h in handles {
             h.await.unwrap();
         }
+
         Ok(())
     }
 }

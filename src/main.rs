@@ -7,6 +7,7 @@ mod config;
 mod database;
 mod error;
 mod log;
+mod restore;
 mod sqlite;
 mod sync;
 
@@ -16,13 +17,12 @@ use config::Config;
 use log::init_log;
 
 use crate::cmd::command;
-use crate::cmd::Command;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let arg = Arg::parse();
     println!("arg: {:?}\n", arg);
-    let config = Config::load(&arg.global_opts.config)?;
+    let config = Config::load(&arg.config)?;
     let log_config = config.log.clone();
 
     init_log(log_config)?;
