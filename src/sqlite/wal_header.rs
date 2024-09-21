@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::io::ErrorKind;
 use std::io::Read;
 
 use super::from_be_bytes_at;
@@ -22,12 +23,16 @@ pub struct WALHeader {
 impl WALHeader {
     // see: https://www.sqlite.org/fileformat2.html#walformat
     pub fn read_from<R: Read + ?Sized>(reader: &mut R) -> Result<WALHeader> {
-        // if file.metadata()?.len() < WAL_HEADER_SIZE as u64 {
-        //    return Err(Error::SqliteInvalidWalHeaderError("Invalid WAL file"));
-        //}
-
         let mut data: Vec<u8> = vec![0u8; WAL_HEADER_SIZE as usize];
-        reader.read_exact(&mut data)?;
+        if let Err(e) = reader.read_exact(&mut data) {
+            if e.kind() == ErrorKind::UnexpectedEof {
+                return Err(Error::SqliteInvalidWalHeaderError(
+                    "Invalid WAL frame header",
+                ));
+            }
+
+            return Err(e.into());
+        }
 
         let magic: &[u8] = &data[0..4];
         // check magic
