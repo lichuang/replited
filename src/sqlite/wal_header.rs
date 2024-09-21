@@ -21,13 +21,13 @@ pub struct WALHeader {
 
 impl WALHeader {
     // see: https://www.sqlite.org/fileformat2.html#walformat
-    pub fn read_from(file: &mut File) -> Result<WALHeader> {
-        if file.metadata()?.len() < WAL_HEADER_SIZE as u64 {
-            return Err(Error::SqliteInvalidWalHeaderError("Invalid WAL file"));
-        }
+    pub fn read_from<R: Read + ?Sized>(reader: &mut R) -> Result<WALHeader> {
+        // if file.metadata()?.len() < WAL_HEADER_SIZE as u64 {
+        //    return Err(Error::SqliteInvalidWalHeaderError("Invalid WAL file"));
+        //}
 
         let mut data: Vec<u8> = vec![0u8; WAL_HEADER_SIZE as usize];
-        file.read_exact(&mut data)?;
+        reader.read_exact(&mut data)?;
 
         let magic: &[u8] = &data[0..4];
         // check magic

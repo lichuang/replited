@@ -24,7 +24,6 @@ use crate::error::Result;
 use crate::sqlite::align_frame;
 use crate::sqlite::WALFrame;
 use crate::sqlite::WALHeader;
-use crate::sqlite::WAL_HEADER_SIZE;
 
 #[derive(Clone, Debug)]
 pub enum SyncCommand {
@@ -171,11 +170,10 @@ impl Sync {
         let mut salt1 = 0;
         let mut salt2 = 0;
         if init_pos.offset == 0 {
-            let wal_header = WALHeader::read_from(&mut reader.file)?;
+            let wal_header = WALHeader::read_from(&mut reader)?;
             salt1 = wal_header.salt1;
             salt2 = wal_header.salt2;
             data.extend_from_slice(&wal_header.data);
-            reader.advance(WAL_HEADER_SIZE as usize)?;
         }
 
         // Copy frames.
@@ -187,7 +185,7 @@ impl Sync {
             let pos = reader.position();
             debug_assert_eq!(pos.offset, align_frame(self.info.page_size, pos.offset));
 
-            let wal_frame = WALFrame::read(&mut reader.file, self.info.page_size)?;
+            let wal_frame = WALFrame::read(&mut reader, self.info.page_size)?;
 
             if (salt1 != 0 && salt1 != wal_frame.salt1) || (salt2 != 0 && salt2 != wal_frame.salt2)
             {
@@ -200,7 +198,6 @@ impl Sync {
             salt2 = wal_frame.salt2;
 
             data.extend_from_slice(&wal_frame.data);
-            reader.advance(wal_frame.data.len())?;
         }
         let compressed_data = compress_buffer(&data)?;
 

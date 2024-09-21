@@ -1,5 +1,7 @@
 use std::fs::File;
 use std::fs::OpenOptions;
+use std::io;
+use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::os::unix::fs::MetadataExt;
@@ -72,18 +74,23 @@ impl ShadowWalReader {
     pub fn position(&self) -> WalGenerationPos {
         self.position.clone()
     }
+}
 
-    pub fn advance(&mut self, n: usize) -> Result<()> {
+impl Read for ShadowWalReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if self.left == 0 {
-            return Err(Error::from_error_code(Error::UNEXPECTED_EOF_ERROR, ""));
+            // nothing to read
+            return Ok(0);
         }
-        let n = n as u64;
+        let n = buf.len() as u64;
         if self.left < n {
-            return Err(Error::from_error_code(Error::BAD_SHADOW_WAL_ERROR, ""));
+            return Err(std::io::Error::from(io::ErrorKind::Interrupted));
         }
+
+        let ret = self.file.read(buf)?;
         self.left -= n;
         self.position.offset += n;
 
-        Ok(())
+        Ok(ret)
     }
 }
