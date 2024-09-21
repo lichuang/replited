@@ -72,18 +72,35 @@ pub fn read_last_checksum(file_name: &str, page_size: u64) -> Result<(u32, u32)>
     Ok((checksum1, checksum2))
 }
 
+// returns a frame-aligned offset.
+// Returns zero if offset is less than the WAL header size.
 pub fn align_frame(page_size: u64, offset: u64) -> u64 {
     if offset < WAL_HEADER_SIZE {
         return 0;
     }
 
-    let frame_size = WAL_FRAME_HEADER_SIZE + page_size;
-    let frame_num = (offset - WAL_HEADER_SIZE) / frame_size;
+    let page_size = page_size as i64;
+    let offset = offset as i64;
+    let frame_size = WAL_FRAME_HEADER_SIZE as i64 + page_size;
+    let frame_num = (offset - WAL_HEADER_SIZE as i64) / frame_size;
 
-    (frame_num * frame_size) + WAL_HEADER_SIZE
+    (frame_num * frame_size) as u64 + WAL_HEADER_SIZE
 }
 
 pub(crate) fn from_be_bytes_at(data: &[u8], offset: usize) -> Result<u32> {
     let p = &data[offset..offset + 4];
     Ok(u32::from_be_bytes(p.try_into()?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::align_frame;
+    use crate::error::Result;
+
+    #[test]
+    fn test_align_frame() -> Result<()> {
+        assert_eq!(4152, align_frame(4096, 4152));
+
+        Ok(())
+    }
 }

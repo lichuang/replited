@@ -101,16 +101,32 @@ pub struct Database {
     checkpoint_mutex: Mutex<()>,
 }
 
-#[derive(Debug, Clone, Default)]
+// position info of wal for a genaration
+#[derive(Debug, Clone)]
 pub struct WalGenerationPos {
+    // generation name
     pub generation: String,
+
+    // wal file index
     pub index: u64,
+
+    // offset within wal file
     pub offset: u64,
+}
+
+impl Default for WalGenerationPos {
+    fn default() -> Self {
+        Self {
+            generation: "".to_string(),
+            index: 0,
+            offset: 0,
+        }
+    }
 }
 
 impl WalGenerationPos {
     pub fn is_empty(&self) -> bool {
-        self.offset == 0
+        self.generation.len() == 0 && self.index == 0 && self.offset == 0
     }
 }
 

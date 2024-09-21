@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use log::debug;
 use log::error;
 use log::info;
 use parking_lot::RwLock;
@@ -23,6 +24,7 @@ use crate::error::Result;
 use crate::sqlite::align_frame;
 use crate::sqlite::WALFrame;
 use crate::sqlite::WALHeader;
+use crate::sqlite::WAL_HEADER_SIZE;
 
 #[derive(Clone, Debug)]
 pub enum SyncCommand {
@@ -38,6 +40,7 @@ enum SyncState {
 
 #[derive(Debug, Clone)]
 pub struct Sync {
+    db: String,
     index: usize,
     client: SyncClient,
     db_notifier: Sender<DbCommand>,
@@ -55,6 +58,7 @@ impl Sync {
         info: DatabaseInfo,
     ) -> Result<Self> {
         Ok(Self {
+            db: db.clone(),
             index,
             position: Arc::new(RwLock::new(WalGenerationPos::default())),
             db_notifier,
@@ -154,13 +158,14 @@ impl Sync {
     }
 
     async fn sync_wal(&mut self) -> Result<()> {
-        // let mut reader = ShadowWalReader::try_create(self.position.clone(), &self.info)?;
-        let mut reader = ShadowWalReader::try_create(WalGenerationPos::default(), &self.info)?;
+        let mut reader = ShadowWalReader::try_create(self.position(), &self.info)?;
 
         // Obtain initial position from shadow reader.
         // It may have moved to the next index if previous position was at the end.
-        let init_pos = reader.pos.clone();
+        let init_pos = reader.position();
         let mut data = Vec::new();
+
+        debug!("db {} write wal segment position {:?}", self.db, init_pos,);
 
         // Copy header if at offset zero.
         let mut salt1 = 0;
@@ -170,6 +175,7 @@ impl Sync {
             salt1 = wal_header.salt1;
             salt2 = wal_header.salt2;
             data.extend_from_slice(&wal_header.data);
+            reader.advance(WAL_HEADER_SIZE as usize)?;
         }
 
         // Copy frames.
@@ -178,14 +184,17 @@ impl Sync {
                 break;
             }
 
-            let pos = reader.pos();
+            let pos = reader.position();
             debug_assert_eq!(pos.offset, align_frame(self.info.page_size, pos.offset));
 
             let wal_frame = WALFrame::read(&mut reader.file, self.info.page_size)?;
 
             if (salt1 != 0 && salt1 != wal_frame.salt1) || (salt2 != 0 && salt2 != wal_frame.salt2)
             {
-                return Err(Error::SqliteInvalidWalFrameError("Invalid WAL frame"));
+                return Err(Error::SqliteInvalidWalFrameError(format!(
+                    "db {} Invalid WAL frame at offset {}",
+                    self.db, pos.offset
+                )));
             }
             salt1 = wal_frame.salt1;
             salt2 = wal_frame.salt2;
@@ -202,7 +211,7 @@ impl Sync {
 
         // update position
         let mut position = self.position.write();
-        *position = reader.pos();
+        *position = reader.position();
         Ok(())
     }
 

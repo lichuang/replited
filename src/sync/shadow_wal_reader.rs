@@ -12,7 +12,7 @@ use crate::error::Result;
 use crate::sqlite::align_frame;
 
 pub struct ShadowWalReader {
-    pub pos: WalGenerationPos,
+    pub position: WalGenerationPos,
     pub file: File,
     pub left: u64,
 }
@@ -52,15 +52,25 @@ impl ShadowWalReader {
         let mut file = OpenOptions::new().read(true).open(file_name)?;
         let size = align_frame(info.page_size, file.metadata()?.size());
 
-        if pos.offset > size {}
+        if pos.offset > size {
+            return Err(Error::WalReaderOffsetTooHighError(format!(
+                "wal reader offset {} > file size {}",
+                pos.offset, size
+            )));
+        }
 
+        // Move file handle to offset position.
         file.seek(SeekFrom::Start(pos.offset))?;
         let left = size - pos.offset;
-        Ok(ShadowWalReader { pos, file, left })
+        Ok(ShadowWalReader {
+            position: pos,
+            file,
+            left,
+        })
     }
 
-    pub fn pos(&self) -> WalGenerationPos {
-        self.pos.clone()
+    pub fn position(&self) -> WalGenerationPos {
+        self.position.clone()
     }
 
     pub fn advance(&mut self, n: usize) -> Result<()> {
@@ -72,7 +82,7 @@ impl ShadowWalReader {
             return Err(Error::from_error_code(Error::BAD_SHADOW_WAL_ERROR, ""));
         }
         self.left -= n;
-        self.pos.offset += n;
+        self.position.offset += n;
 
         Ok(())
     }

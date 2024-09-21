@@ -64,6 +64,7 @@ build_error! {
     SpawnDatabaseTaskError(80),
     OverwriteDbError(81),
     NoGenerationError(82),
+    WalReaderOffsetTooHighError(83),
 
     // tokio error
     TokioError(100),
