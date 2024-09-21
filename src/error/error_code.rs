@@ -63,6 +63,7 @@ build_error! {
     // database error
     SpawnDatabaseTaskError(80),
     OverwriteDbError(81),
+    NoGenerationError(82),
 
     // tokio error
     TokioError(100),

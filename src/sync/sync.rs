@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use log::error;
 use log::info;
 use parking_lot::RwLock;
 use tokio::select;
@@ -210,11 +211,24 @@ impl Sync {
         position.clone()
     }
 
+    fn reset_position(&self) {
+        let mut position = self.position.write();
+        *position = WalGenerationPos::default();
+    }
+
     async fn command(&mut self, cmd: SyncCommand) -> Result<()> {
         match cmd {
-            SyncCommand::DbChanged(pos) => self.sync(pos).await?,
+            SyncCommand::DbChanged(pos) => {
+                if let Err(e) = self.sync(pos).await {
+                    error!("sync db error: {:?}", e);
+                    // Clear last position if if an error occurs during sync.
+                    self.reset_position();
+                }
+            }
             SyncCommand::Snapshot((pos, compressed_data)) => {
-                self.sync_snapshot(pos, compressed_data).await?;
+                if let Err(e) = self.sync_snapshot(pos, compressed_data).await {
+                    error!("sync db snapshot error: {:?}", e);
+                }
             }
         }
         Ok(())

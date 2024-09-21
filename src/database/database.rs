@@ -37,6 +37,7 @@ use crate::base::parse_wal_path;
 use crate::base::path_base;
 use crate::base::shadow_wal_dir;
 use crate::base::shadow_wal_file;
+use crate::base::TempFile;
 use crate::config::ReplicateDbConfig;
 use crate::error::Error;
 use crate::error::Result;
@@ -348,6 +349,25 @@ impl Database {
 
         let shadow_wal_file = self.shadow_wal_file(&generation, index);
 
+        match fs::exists(&shadow_wal_file) {
+            Err(e) => {
+                error!(
+                    "check db {} shadow_wal file {} err: {}",
+                    self.config.db, shadow_wal_file, e,
+                );
+                return Err(e.into());
+            }
+            Ok(exist) => {
+                // shadow wal file not exists, return pos with offset = 0
+                if !exist {
+                    return Ok(WalGenerationPos {
+                        generation,
+                        index,
+                        offset: 0,
+                    });
+                }
+            }
+        }
         let file_metadata = fs::metadata(&shadow_wal_file)?;
 
         Ok(WalGenerationPos {
@@ -413,9 +433,7 @@ impl Database {
     fn clean(&mut self) -> Result<()> {
         self.clean_generations()?;
 
-        if let Err(e) = self.clean_wal() {
-            error!("db {} clean wal error: {:?}", self.config.db, e);
-        }
+        self.clean_wal()?;
 
         Ok(())
     }
@@ -558,12 +576,8 @@ impl Database {
 
         // copy wal frames into temp shadow wal file
         let temp_shadow_wal_file = format!("{}.tmp", shadow_wal);
-        if let Err(e) = fs::remove_file(&temp_shadow_wal_file) {
-            // ignore file not exists case
-            if e.kind() != std::io::ErrorKind::NotFound {
-                return Err(e.into());
-            }
-        }
+        let _temp_file = TempFile::try_create(temp_shadow_wal_file.clone())?;
+
         // create a temp file to copy wal frames, truncate if exists
         let mut temp_file = OpenOptions::new()
             .read(true)
@@ -908,7 +922,9 @@ impl Database {
 
         // Obtain current position.
         let pos = self.wal_generation_position()?;
-        if pos.is_empty() {}
+        if pos.is_empty() {
+            return Err(Error::NoGenerationError("no generation"));
+        }
 
         // compress db file
         let compressed_data = compress_file(&self.config.db)?;
