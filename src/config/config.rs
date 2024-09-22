@@ -226,6 +226,12 @@ impl Debug for ReplicateDbConfig {
                 "min_checkpoint_page_number",
                 &self.min_checkpoint_page_number,
             )
+            .field(
+                "max_checkpoint_page_number",
+                &self.max_checkpoint_page_number,
+            )
+            .field("truncate_page_number", &self.truncate_page_number)
+            .field("checkpoint_interval_secs", &self.checkpoint_interval_secs)
             .finish()
     }
 }

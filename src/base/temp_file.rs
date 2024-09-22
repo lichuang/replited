@@ -20,7 +20,7 @@ impl TempFile {
 impl Drop for TempFile {
     fn drop(&mut self) {
         if let Err(e) = fs::remove_file(&self.file) {
-            error!("remove_file err: {:?}", e);
+            error!("remove temp file {} err: {:?}", self.file, e);
         }
     }
 }

@@ -515,7 +515,6 @@ impl Database {
         // Remove all WAL files for the generation before the lowest index.
         let dir = shadow_wal_dir(&self.meta_dir, &generation);
         if !fs::exists(&dir)? {
-            println!("exists");
             return Ok(());
         }
         for entry in fs::read_dir(&dir)? {
@@ -665,12 +664,30 @@ impl Database {
 
         let mut buffer = Vec::new();
         temp_file.read_to_end(&mut buffer)?;
-        fs::remove_file(&temp_shadow_wal_file)?;
 
         // append wal frames to end of shadow wal file
         let mut shadow_wal_file = OpenOptions::new().append(true).open(shadow_wal)?;
-        shadow_wal_file.write_all(&buffer).unwrap();
+        shadow_wal_file.write_all(&buffer)?;
+        shadow_wal_file.flush()?;
 
+        // in debug mode, assert last frame match
+        #[cfg(debug_assertions)]
+        {
+            let shadow_wal_file = fs::metadata(&shadow_wal)?;
+            let shadow_wal_size = align_frame(self.page_size, shadow_wal_file.len());
+
+            let offset = shadow_wal_size - self.page_size - WAL_FRAME_HEADER_SIZE;
+
+            let mut shadow_wal_file = OpenOptions::new().read(true).open(shadow_wal)?;
+            shadow_wal_file.seek(SeekFrom::Start(offset))?;
+            let shadow_wal_last_frame = WALFrame::read(&mut shadow_wal_file, self.page_size)?;
+
+            let mut wal_file = OpenOptions::new().read(true).open(&self.wal_file)?;
+            wal_file.seek(SeekFrom::Start(offset))?;
+            let wal_last_frame = WALFrame::read(&mut wal_file, self.page_size)?;
+
+            assert_eq!(shadow_wal_last_frame, wal_last_frame);
+        }
         Ok((orig_wal_size, last_commit_size))
     }
 
@@ -711,7 +728,13 @@ impl Database {
             if let Ok(entry) = entry {
                 let file_type = entry.file_type()?;
                 let file_name = entry.file_name().into_string().unwrap();
-                if !fs::exists(&file_name)? {
+                let path = Path::new(&wal_dir).join(&file_name);
+                if !fs::exists(&path)? {
+                    // file was deleted after os.ReadDir returned
+                    debug!(
+                        "db {} shadow wal {:?} deleted after read_dir return",
+                        self.config.db, path
+                    );
                     continue;
                 }
                 if !file_type.is_file() {
@@ -827,6 +850,15 @@ impl Database {
             shadow_wal_file.seek(SeekFrom::Start(offset))?;
             let shadow_wal_last_frame = WALFrame::read(&mut shadow_wal_file, self.page_size)?;
             if wal_last_frame != shadow_wal_last_frame {
+                debug!(
+                    "db {} verify offset: {}, shadow_wal_file: {}, shadow salt1: {}, wal file: {}, wal salt1: {} last frame mismatched",
+                    self.config.db,
+                    offset,
+                    info.shadow_wal_file,
+                    shadow_wal_last_frame.salt1,
+                    self.wal_file,
+                    wal_last_frame.salt1
+                );
                 info.reason = Some("wal overwritten by another process".to_string());
                 return Ok(info);
             }
