@@ -27,13 +27,17 @@ pub struct RestoreOptions {
     #[arg(short, long, default_value = "")]
     pub db: String,
 
+    // restore db output path
+    #[arg(long, default_value = "")]
+    pub output: String,
+
     // restore db generation string.
     // when empty, use the most recent genaration from replicates.
     #[arg(short, long, default_value = "")]
     pub generation: String,
 
     // if overwrite exsiting db in the same path
-    #[arg(short, long, default_value_t = false)]
+    #[arg(long, default_value_t = false)]
     pub overwrite: bool,
 }
 
@@ -43,6 +47,12 @@ impl RestoreOptions {
             println!("restore MUST Specify db path in config");
             return Err(Error::InvalidArg("arg MUST Specify db path in config"));
         }
+
+        if self.output.is_empty() {
+            println!("restore MUST Specify db output path");
+            return Err(Error::InvalidArg("arg MUST Specify db output pathg"));
+        }
+
         Ok(())
     }
 }

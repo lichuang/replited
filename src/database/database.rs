@@ -31,7 +31,7 @@ use uuid::Uuid;
 use crate::base::compress_file;
 use crate::base::generation_dir;
 use crate::base::generation_file_path;
-use crate::base::generations_dir;
+use crate::base::local_generations_dir;
 use crate::base::parent_dir;
 use crate::base::parse_wal_path;
 use crate::base::path_base;
@@ -456,7 +456,7 @@ impl Database {
 
     fn clean_generations(&self) -> Result<()> {
         let generation = self.current_generation()?;
-        let genetations_dir = generations_dir(&self.meta_dir);
+        let genetations_dir = local_generations_dir(&self.meta_dir);
 
         if !fs::exists(&genetations_dir)? {
             return Ok(());

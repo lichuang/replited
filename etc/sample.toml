@@ -6,7 +6,7 @@ dir = "/var/log/replited/"
 db = "/Users/codedump/local/sqlite/test.db"
 
 [[database.replicate]]
-allow_insecure = true
+name = "fs"
 params.type = "Fs"
 params.root = "/Users/codedump/local/replited"
 

@@ -102,9 +102,18 @@ pub fn format_snapshot_path(index: u64) -> String {
     format!("{:08X}{}", index, SNAPSHOT_EXTENDION)
 }
 
-pub fn generations_dir(meta_dir: &str) -> String {
+pub fn local_generations_dir(meta_dir: &str) -> String {
     Path::new(meta_dir)
         .join("generations")
+        .as_path()
+        .to_str()
+        .unwrap()
+        .to_string()
+}
+
+pub fn remote_generations_dir(db_name: &str) -> String {
+    Path::new(db_name)
+        .join("generations/")
         .as_path()
         .to_str()
         .unwrap()
@@ -207,6 +216,10 @@ mod tests {
     #[test]
     fn test_path_base() -> Result<()> {
         let path = "a/b/c";
+        let base = path_base(path)?;
+        assert_eq!(&base, "c");
+
+        let path = "c/";
         let base = path_base(path)?;
         assert_eq!(&base, "c");
 

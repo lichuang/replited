@@ -61,7 +61,7 @@ impl Replicate {
             index,
             position: Arc::new(RwLock::new(WalGenerationPos::default())),
             db_notifier,
-            client: StorageClient::new(db, config)?,
+            client: StorageClient::try_create(db, config)?,
             state: SyncState::WaitDbChanged,
             info,
         })

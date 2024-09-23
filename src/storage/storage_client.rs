@@ -6,6 +6,8 @@ use opendal::Operator;
 use super::init_operator;
 use crate::base::parse_snapshot_path;
 use crate::base::parse_wal_segment_path;
+use crate::base::path_base;
+use crate::base::remote_generations_dir;
 use crate::base::snapshot_file;
 use crate::base::snapshots_dir;
 use crate::base::walsegment_file;
@@ -18,10 +20,11 @@ use crate::error::Result;
 pub struct StorageClient {
     operator: Operator,
     root: String,
-    db: String,
+    db_path: String,
+    db_name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SnapshotInfo {
     pub generation: String,
     pub index: u64,
@@ -38,11 +41,12 @@ pub struct WalSegmentInfo {
 }
 
 impl StorageClient {
-    pub fn new(db: String, config: StorageConfig) -> Result<Self> {
+    pub fn try_create(db_path: String, config: StorageConfig) -> Result<Self> {
         Ok(Self {
             root: config.params.root(),
             operator: init_operator(&config.params)?,
-            db,
+            db_name: path_base(&db_path)?,
+            db_path,
         })
     }
 
@@ -51,7 +55,7 @@ impl StorageClient {
         pos: &WalGenerationPos,
         compressed_data: Vec<u8>,
     ) -> Result<()> {
-        let file = walsegment_file(&self.db, &pos.generation, pos.index, pos.offset);
+        let file = walsegment_file(&self.db_path, &pos.generation, pos.index, pos.offset);
 
         self.operator.write(&file, compressed_data).await?;
 
@@ -63,7 +67,7 @@ impl StorageClient {
         pos: &WalGenerationPos,
         compressed_data: Vec<u8>,
     ) -> Result<SnapshotInfo> {
-        let snapshot_file = snapshot_file(&self.db, &pos.generation, pos.index);
+        let snapshot_file = snapshot_file(&self.db_path, &pos.generation, pos.index);
         let snapshot_info = SnapshotInfo {
             generation: pos.generation.to_string(),
             index: pos.index,
@@ -76,7 +80,7 @@ impl StorageClient {
     }
 
     pub async fn snapshots(&self, generation: &str) -> Result<Vec<SnapshotInfo>> {
-        let snapshots_dir = snapshots_dir(&self.db, generation);
+        let snapshots_dir = snapshots_dir(&self.db_path, generation);
         let entries = self
             .operator
             .list_with(&snapshots_dir)
@@ -100,7 +104,7 @@ impl StorageClient {
     }
 
     pub async fn wal_segments(&self, generation: &str) -> Result<Vec<WalSegmentInfo>> {
-        let walsegments_dir = walsegments_dir(&self.db, generation);
+        let walsegments_dir = walsegments_dir(&self.db_path, generation);
         let entries = self
             .operator
             .list_with(&walsegments_dir)
@@ -126,8 +130,26 @@ impl StorageClient {
         let index = info.index;
         let offset = info.offset;
 
-        let wal_segment_file = walsegment_file(&self.db, generation, index, offset);
+        let wal_segment_file = walsegment_file(&self.db_path, generation, index, offset);
         let bytes = self.operator.read(&wal_segment_file).await?.to_vec();
         Ok(bytes)
+    }
+
+    pub async fn latest_snapshot(&self, generation: &str) -> Result<SnapshotInfo> {
+        let dir = remote_generations_dir(&self.db_name);
+        let entries = self.operator.list(&dir).await?;
+        for entry in entries {
+            let metadata = entry.metadata();
+            if !metadata.is_dir() {
+                continue;
+            }
+            let entry_generation = path_base(entry.name())?;
+            println!("entry: {}", entry_generation);
+            if !generation.is_empty() && entry_generation != generation {
+                continue;
+            }
+        }
+
+        Ok(SnapshotInfo::default())
     }
 }
