@@ -51,7 +51,7 @@ use crate::sqlite::CHECKPOINT_MODE_RESTART;
 use crate::sqlite::CHECKPOINT_MODE_TRUNCATE;
 use crate::sqlite::WAL_FRAME_HEADER_SIZE;
 use crate::sqlite::WAL_HEADER_SIZE;
-use crate::sync::Sync;
+use crate::sync::Replicate;
 use crate::sync::SyncCommand;
 
 const GENERATION_LEN: usize = 32;
@@ -95,7 +95,7 @@ pub struct Database {
     sync_notifiers: Vec<Sender<SyncCommand>>,
     // sync: Vec<Sync>,
     sync_handle: Vec<JoinHandle<()>>,
-    syncs: Vec<Sync>,
+    syncs: Vec<Replicate>,
 
     // checkpoint mutex
     checkpoint_mutex: Mutex<()>,
@@ -237,7 +237,7 @@ impl Database {
             .to_string();
         for (index, replicate) in config.replicate.iter().enumerate() {
             let (sync_notifier, sync_receiver) = mpsc::channel(16);
-            let s = Sync::new(
+            let s = Replicate::new(
                 replicate.clone(),
                 db.clone(),
                 index,
@@ -245,7 +245,7 @@ impl Database {
                 info.clone(),
             )?;
             syncs.push(s.clone());
-            let h = Sync::start(s, sync_receiver)?;
+            let h = Replicate::start(s, sync_receiver)?;
             sync_handle.push(h);
             sync_notifiers.push(sync_notifier);
         }

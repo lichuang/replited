@@ -7,8 +7,8 @@ mod config;
 mod database;
 mod error;
 mod log;
-mod restore;
 mod sqlite;
+mod storage;
 mod sync;
 
 use clap::Parser;

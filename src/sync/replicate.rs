@@ -9,9 +9,6 @@ use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 
-use super::sync_client::SnapshotInfo;
-use super::sync_client::SyncClient;
-use super::sync_client::WalSegmentInfo;
 use super::ShadowWalReader;
 use crate::base::compress_buffer;
 use crate::base::decompressed_data;
@@ -24,6 +21,9 @@ use crate::error::Result;
 use crate::sqlite::align_frame;
 use crate::sqlite::WALFrame;
 use crate::sqlite::WALHeader;
+use crate::storage::SnapshotInfo;
+use crate::storage::StorageClient;
+use crate::storage::WalSegmentInfo;
 
 #[derive(Clone, Debug)]
 pub enum SyncCommand {
@@ -38,17 +38,17 @@ enum SyncState {
 }
 
 #[derive(Debug, Clone)]
-pub struct Sync {
+pub struct Replicate {
     db: String,
     index: usize,
-    client: SyncClient,
+    client: StorageClient,
     db_notifier: Sender<DbCommand>,
     position: Arc<RwLock<WalGenerationPos>>,
     state: SyncState,
     info: DatabaseInfo,
 }
 
-impl Sync {
+impl Replicate {
     pub fn new(
         config: StorageConfig,
         db: String,
@@ -61,22 +61,22 @@ impl Sync {
             index,
             position: Arc::new(RwLock::new(WalGenerationPos::default())),
             db_notifier,
-            client: SyncClient::new(db, config)?,
+            client: StorageClient::new(db, config)?,
             state: SyncState::WaitDbChanged,
             info,
         })
     }
 
-    pub fn start(s: Sync, rx: Receiver<SyncCommand>) -> Result<JoinHandle<()>> {
+    pub fn start(s: Replicate, rx: Receiver<SyncCommand>) -> Result<JoinHandle<()>> {
         let s = s.clone();
         let handle = tokio::spawn(async move {
-            let _ = Sync::main(s, rx).await;
+            let _ = Replicate::main(s, rx).await;
         });
 
         Ok(handle)
     }
 
-    pub async fn main(s: Sync, rx: Receiver<SyncCommand>) -> Result<()> {
+    pub async fn main(s: Replicate, rx: Receiver<SyncCommand>) -> Result<()> {
         let mut rx = rx;
         let mut s = s;
         loop {

@@ -3,7 +3,7 @@ use crate::config::Config;
 use crate::config::RestoreOptions;
 use crate::error::Result;
 use crate::log::init_log;
-use crate::restore::run_restore;
+use crate::sync::run_restore;
 
 pub struct Restore {
     config: Config,

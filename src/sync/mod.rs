@@ -1,9 +1,8 @@
-mod operator;
+mod replicate;
+mod restore;
 mod shadow_wal_reader;
-mod sync;
-mod sync_client;
 
-pub(crate) use operator::init_operator;
+pub use replicate::Replicate;
+pub use replicate::SyncCommand;
+pub use restore::run_restore;
 pub(crate) use shadow_wal_reader::ShadowWalReader;
-pub use sync::Sync;
-pub use sync::SyncCommand;

@@ -15,7 +15,7 @@ use crate::database::WalGenerationPos;
 use crate::error::Result;
 
 #[derive(Debug, Clone)]
-pub struct SyncClient {
+pub struct StorageClient {
     operator: Operator,
     root: String,
     db: String,
@@ -37,7 +37,7 @@ pub struct WalSegmentInfo {
     pub size: u64,
 }
 
-impl SyncClient {
+impl StorageClient {
     pub fn new(db: String, config: StorageConfig) -> Result<Self> {
         Ok(Self {
             root: config.params.root(),
