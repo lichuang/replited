@@ -1,3 +1,5 @@
+use chrono::DateTime;
+use chrono::Utc;
 use opendal::Metakey;
 use opendal::Operator;
 
@@ -24,6 +26,7 @@ pub struct SnapshotInfo {
     pub generation: String,
     pub index: u64,
     pub size: u64,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone)]
@@ -61,11 +64,11 @@ impl SyncClient {
         compressed_data: Vec<u8>,
     ) -> Result<SnapshotInfo> {
         let snapshot_file = snapshot_file(&self.db, &pos.generation, pos.index);
-
         let snapshot_info = SnapshotInfo {
             generation: pos.generation.to_string(),
             index: pos.index,
             size: compressed_data.len() as u64,
+            created_at: Utc::now(),
         };
         self.operator.write(&snapshot_file, compressed_data).await?;
 
@@ -78,15 +81,18 @@ impl SyncClient {
             .operator
             .list_with(&snapshots_dir)
             .metakey(Metakey::ContentLength)
+            .metakey(Metakey::LastModified)
             .await?;
 
         let mut snapshots = vec![];
         for entry in entries {
+            let metadata = entry.metadata();
             let index = parse_snapshot_path(entry.name())?;
             snapshots.push(SnapshotInfo {
                 generation: generation.to_string(),
                 index,
-                size: entry.metadata().content_length(),
+                size: metadata.content_length(),
+                created_at: metadata.last_modified().unwrap(),
             })
         }
 

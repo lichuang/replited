@@ -15,6 +15,6 @@ pub trait Command {
 pub fn command(arg: Arg) -> Result<Box<dyn Command>> {
     match &arg.cmd {
         ArgCommand::Replicate => Ok(Replicate::try_create(&arg.config)?),
-        ArgCommand::Restore { overwrite } => Ok(Restore::try_create(&arg.config, *overwrite)?),
+        ArgCommand::Restore(options) => Ok(Restore::try_create(&arg.config, options.clone())?),
     }
 }

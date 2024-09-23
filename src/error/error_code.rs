@@ -35,8 +35,9 @@ build_error! {
     // config file error
     EmptyConfigFile(1),
     InvalidConfig(2),
-    ReadConfigFail(3),
-    ParseConfigFail(4),
+    InvalidArg(3),
+    ReadConfigFail(4),
+    ParseConfigFail(5),
 
     // logger error
     InitLoggerError(10),

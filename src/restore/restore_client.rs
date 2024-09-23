@@ -2,18 +2,19 @@ use std::fs;
 
 use log::error;
 
-use crate::config::RestoreDbConfig;
+use crate::config::DbConfig;
+use crate::config::RestoreOptions;
 use crate::config::StorageConfig;
 use crate::error::Error;
 use crate::error::Result;
 
 pub struct RestoreClient {
     db: String,
-    config: StorageConfig,
+    config: Vec<StorageConfig>,
 }
 
 impl RestoreClient {
-    pub fn try_create(db: String, config: StorageConfig) -> Result<Self> {
+    pub fn try_create(db: String, config: Vec<StorageConfig>) -> Result<Self> {
         Ok(Self { db, config })
     }
 
@@ -28,10 +29,10 @@ impl RestoreClient {
     }
 }
 
-pub async fn run_restore(config: &RestoreDbConfig, overwrite: bool) -> Result<()> {
+pub async fn run_restore(config: &DbConfig, options: &RestoreOptions) -> Result<()> {
     let restore = RestoreClient::try_create(config.db.clone(), config.replicate.clone())?;
 
-    restore.run(overwrite).await?;
+    restore.run(options.overwrite).await?;
 
     Ok(())
 }

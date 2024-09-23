@@ -38,7 +38,7 @@ use crate::base::path_base;
 use crate::base::shadow_wal_dir;
 use crate::base::shadow_wal_file;
 use crate::base::TempFile;
-use crate::config::ReplicateDbConfig;
+use crate::config::DbConfig;
 use crate::error::Error;
 use crate::error::Result;
 use crate::sqlite::align_frame;
@@ -77,7 +77,7 @@ pub struct DatabaseInfo {
 }
 
 pub struct Database {
-    config: ReplicateDbConfig,
+    config: DbConfig,
 
     // Path to the database metadata.
     meta_dir: String,
@@ -196,7 +196,7 @@ impl Database {
     }
 
     // init replited directory
-    fn init_directory(config: &ReplicateDbConfig) -> Result<String> {
+    fn init_directory(config: &DbConfig) -> Result<String> {
         let file_path = PathBuf::from(&config.db);
         let db_name = file_path.file_name().unwrap().to_str().unwrap();
         let dir_path = file_path.parent().unwrap_or_else(|| Path::new("."));
@@ -206,7 +206,7 @@ impl Database {
         Ok(meta_dir)
     }
 
-    fn try_create(config: ReplicateDbConfig) -> Result<(Self, Receiver<DbCommand>)> {
+    fn try_create(config: DbConfig) -> Result<(Self, Receiver<DbCommand>)> {
         info!("start database with config: {:?}\n", config);
         let connection = Connection::open(&config.db)?;
 
@@ -996,7 +996,7 @@ impl Drop for Database {
     }
 }
 
-pub async fn run_database(config: ReplicateDbConfig) -> Result<()> {
+pub async fn run_database(config: DbConfig) -> Result<()> {
     let (mut database, mut db_receiver) = Database::try_create(config)?;
     loop {
         select! {
