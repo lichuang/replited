@@ -1,3 +1,6 @@
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use uuid::timestamp;
 use uuid::NoContext;
 use uuid::Uuid;
@@ -31,5 +34,11 @@ impl Generation {
 
     pub fn is_empty(&self) -> bool {
         self.uuid.is_nil()
+    }
+}
+
+impl Display for Generation {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self.generation)
     }
 }

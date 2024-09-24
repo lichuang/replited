@@ -1,5 +1,6 @@
 use chrono::DateTime;
 use chrono::Utc;
+use log::error;
 use opendal::Metakey;
 use opendal::Operator;
 
@@ -73,7 +74,7 @@ impl StorageClient {
         pos: &WalGenerationPos,
         compressed_data: Vec<u8>,
     ) -> Result<SnapshotInfo> {
-        let snapshot_file = snapshot_file(&self.db_path, pos.generation.as_str(), pos.index);
+        let snapshot_file = snapshot_file(&self.db_name, pos.generation.as_str(), pos.index);
         let snapshot_info = SnapshotInfo {
             generation: pos.generation.clone(),
             index: pos.index,
@@ -85,9 +86,18 @@ impl StorageClient {
         Ok(snapshot_info)
     }
 
+    pub async fn read_snapshot(&self, info: &SnapshotInfo) -> Result<Vec<u8>> {
+        let snapshot_file = snapshot_file(&self.db_name, info.generation.as_str(), info.index);
+        println!("snapshot file: {}", snapshot_file);
+
+        let data = self.operator.read(&snapshot_file).await?;
+
+        Ok(data.to_vec())
+    }
+
     pub async fn snapshots(&self, generation: &str) -> Result<Vec<SnapshotInfo>> {
         let generation = Generation::try_create(generation)?;
-        let snapshots_dir = snapshots_dir(&self.db_path, generation.as_str());
+        let snapshots_dir = snapshots_dir(&self.db_name, generation.as_str());
         let entries = self
             .operator
             .list_with(&snapshots_dir)
@@ -108,6 +118,49 @@ impl StorageClient {
         }
 
         Ok(snapshots)
+    }
+
+    async fn max_snapshot(&self, generation: &str) -> Result<Option<SnapshotInfo>> {
+        let generation = Generation::try_create(generation)?;
+        let snapshots_dir = snapshots_dir(&self.db_name, generation.as_str());
+        let entries = self
+            .operator
+            .list_with(&snapshots_dir)
+            .metakey(Metakey::ContentLength)
+            .metakey(Metakey::LastModified)
+            .await?;
+
+        let mut snapshot = None;
+        let mut max_index = None;
+        for entry in entries {
+            let metadata = entry.metadata();
+            let index = parse_snapshot_path(entry.name())?;
+            let mut update = false;
+            match max_index {
+                Some(mi) => {
+                    if index > mi {
+                        update = true;
+                    }
+                }
+                None => {
+                    update = true;
+                }
+            }
+
+            if !update {
+                continue;
+            }
+
+            max_index = Some(index);
+            snapshot = Some(SnapshotInfo {
+                generation: generation.clone(),
+                index,
+                size: metadata.content_length(),
+                created_at: metadata.last_modified().unwrap(),
+            });
+        }
+
+        Ok(snapshot)
     }
 
     pub async fn wal_segments(&self, generation: &str) -> Result<Vec<WalSegmentInfo>> {
@@ -143,21 +196,48 @@ impl StorageClient {
         Ok(bytes)
     }
 
-    pub async fn latest_snapshot(&self, generation: &str) -> Result<SnapshotInfo> {
+    pub async fn latest_snapshot(&self) -> Result<Option<SnapshotInfo>> {
         let dir = remote_generations_dir(&self.db_name);
         let entries = self.operator.list(&dir).await?;
+
+        let mut entry_with_generation = Vec::with_capacity(entries.len());
         for entry in entries {
             let metadata = entry.metadata();
             if !metadata.is_dir() {
                 continue;
             }
-            let entry_generation = path_base(entry.name())?;
-            println!("entry: {}", entry_generation);
-            if !generation.is_empty() && entry_generation != generation {
-                continue;
-            }
+            let generation = path_base(entry.name())?;
+
+            let generation = match Generation::try_create(&generation) {
+                Ok(generation) => generation,
+                Err(e) => {
+                    error!(
+                        "dir {} is not valid generation dir, err: {:?}",
+                        generation, e
+                    );
+                    continue;
+                }
+            };
+
+            entry_with_generation.push((entry, generation));
         }
 
-        Ok(SnapshotInfo::default())
+        // sort the entries in reverse order
+        entry_with_generation.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+        for (_entry, generation) in entry_with_generation {
+            let snapshot = match self.max_snapshot(generation.as_str()).await? {
+                Some(snapshot) => snapshot,
+                // if generation has no snapshot, ignore and skip to the next generation
+                None => {
+                    error!("dir {:?} has no snapshots", generation);
+                    continue;
+                }
+            };
+
+            return Ok(Some(snapshot));
+        }
+
+        Ok(None)
     }
 }
