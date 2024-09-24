@@ -87,25 +87,31 @@ impl From<std::num::ParseIntError> for Error {
 
 impl From<opendal::Error> for Error {
     fn from(e: opendal::Error) -> Error {
-        Error::from_std_error(e)
+        Error::OpenDalError(format!("opendal error: {:?}", e.to_string()))
+    }
+}
+
+impl From<uuid::Error> for Error {
+    fn from(e: uuid::Error) -> Error {
+        Error::UUIDError(format!("uuid error: {:?}", e.to_string()))
     }
 }
 
 impl From<tokio::sync::mpsc::error::SendError<SyncCommand>> for Error {
     fn from(e: tokio::sync::mpsc::error::SendError<SyncCommand>) -> Error {
-        Error::from_std_error(e)
+        Error::TokioError(format!("tokio send SyncCommand error: {:?}", e.to_string()))
     }
 }
 
 impl From<tokio::sync::mpsc::error::SendError<DbCommand>> for Error {
     fn from(e: tokio::sync::mpsc::error::SendError<DbCommand>) -> Error {
-        Error::from_std_error(e)
+        Error::TokioError(format!("tokio send DbCommand error: {:?}", e.to_string()))
     }
 }
 
 impl From<tokio::sync::broadcast::error::RecvError> for Error {
     fn from(e: tokio::sync::broadcast::error::RecvError) -> Error {
-        Error::from_std_error(e)
+        Error::TokioError(format!("tokio broadcast recv error: {:?}", e.to_string()))
     }
 }
 

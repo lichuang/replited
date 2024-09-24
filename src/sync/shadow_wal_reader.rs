@@ -50,7 +50,7 @@ impl ShadowWalReader {
     }
 
     fn new(pos: WalGenerationPos, info: &DatabaseInfo) -> Result<ShadowWalReader> {
-        let file_name = shadow_wal_file(&info.meta_dir, &pos.generation, pos.index);
+        let file_name = shadow_wal_file(&info.meta_dir, pos.generation.as_str(), pos.index);
         let mut file = OpenOptions::new().read(true).open(file_name)?;
         let size = align_frame(info.page_size, file.metadata()?.size());
 

@@ -67,8 +67,10 @@ build_error! {
     NoGenerationError(82),
     WalReaderOffsetTooHighError(83),
 
-    // tokio error
+    // 3rd crate error
     TokioError(100),
+    OpenDalError(101),
+    UUIDError(102),
 
     // sqlite error
     SqliteError(120),

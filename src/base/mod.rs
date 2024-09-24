@@ -1,5 +1,6 @@
 mod compress;
 mod file;
+mod generation;
 mod numerical;
 mod string;
 mod temp_file;
@@ -22,6 +23,7 @@ pub use file::snapshot_file;
 pub use file::snapshots_dir;
 pub use file::walsegment_file;
 pub use file::walsegments_dir;
+pub use generation::Generation;
 pub use numerical::is_power_of_two;
 pub use string::mask_string;
 pub use temp_file::TempFile;

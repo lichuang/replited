@@ -12,6 +12,7 @@ use crate::base::snapshot_file;
 use crate::base::snapshots_dir;
 use crate::base::walsegment_file;
 use crate::base::walsegments_dir;
+use crate::base::Generation;
 use crate::config::StorageConfig;
 use crate::database::WalGenerationPos;
 use crate::error::Result;
@@ -26,7 +27,7 @@ pub struct StorageClient {
 
 #[derive(Debug, Clone, Default)]
 pub struct SnapshotInfo {
-    pub generation: String,
+    pub generation: Generation,
     pub index: u64,
     pub size: u64,
     pub created_at: DateTime<Utc>,
@@ -34,7 +35,7 @@ pub struct SnapshotInfo {
 
 #[derive(Debug, Clone)]
 pub struct WalSegmentInfo {
-    pub generation: String,
+    pub generation: Generation,
     pub index: u64,
     pub offset: u64,
     pub size: u64,
@@ -55,7 +56,12 @@ impl StorageClient {
         pos: &WalGenerationPos,
         compressed_data: Vec<u8>,
     ) -> Result<()> {
-        let file = walsegment_file(&self.db_path, &pos.generation, pos.index, pos.offset);
+        let file = walsegment_file(
+            &self.db_path,
+            pos.generation.as_str(),
+            pos.index,
+            pos.offset,
+        );
 
         self.operator.write(&file, compressed_data).await?;
 
@@ -67,9 +73,9 @@ impl StorageClient {
         pos: &WalGenerationPos,
         compressed_data: Vec<u8>,
     ) -> Result<SnapshotInfo> {
-        let snapshot_file = snapshot_file(&self.db_path, &pos.generation, pos.index);
+        let snapshot_file = snapshot_file(&self.db_path, pos.generation.as_str(), pos.index);
         let snapshot_info = SnapshotInfo {
-            generation: pos.generation.to_string(),
+            generation: pos.generation.clone(),
             index: pos.index,
             size: compressed_data.len() as u64,
             created_at: Utc::now(),
@@ -80,7 +86,8 @@ impl StorageClient {
     }
 
     pub async fn snapshots(&self, generation: &str) -> Result<Vec<SnapshotInfo>> {
-        let snapshots_dir = snapshots_dir(&self.db_path, generation);
+        let generation = Generation::try_create(generation)?;
+        let snapshots_dir = snapshots_dir(&self.db_path, generation.as_str());
         let entries = self
             .operator
             .list_with(&snapshots_dir)
@@ -93,7 +100,7 @@ impl StorageClient {
             let metadata = entry.metadata();
             let index = parse_snapshot_path(entry.name())?;
             snapshots.push(SnapshotInfo {
-                generation: generation.to_string(),
+                generation: generation.clone(),
                 index,
                 size: metadata.content_length(),
                 created_at: metadata.last_modified().unwrap(),
@@ -104,7 +111,8 @@ impl StorageClient {
     }
 
     pub async fn wal_segments(&self, generation: &str) -> Result<Vec<WalSegmentInfo>> {
-        let walsegments_dir = walsegments_dir(&self.db_path, generation);
+        let generation = Generation::try_create(generation)?;
+        let walsegments_dir = walsegments_dir(&self.db_path, generation.as_str());
         let entries = self
             .operator
             .list_with(&walsegments_dir)
@@ -115,7 +123,7 @@ impl StorageClient {
         for entry in entries {
             let (index, offset) = parse_wal_segment_path(entry.name())?;
             wal_segments.push(WalSegmentInfo {
-                generation: generation.to_string(),
+                generation: generation.clone(),
                 index,
                 offset,
                 size: entry.metadata().content_length(),
@@ -130,7 +138,7 @@ impl StorageClient {
         let index = info.index;
         let offset = info.offset;
 
-        let wal_segment_file = walsegment_file(&self.db_path, generation, index, offset);
+        let wal_segment_file = walsegment_file(&self.db_path, generation.as_str(), index, offset);
         let bytes = self.operator.read(&wal_segment_file).await?.to_vec();
         Ok(bytes)
     }

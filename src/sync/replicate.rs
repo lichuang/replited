@@ -12,6 +12,7 @@ use tokio::task::JoinHandle;
 use super::ShadowWalReader;
 use crate::base::compress_buffer;
 use crate::base::decompressed_data;
+use crate::base::Generation;
 use crate::config::StorageConfig;
 use crate::database::DatabaseInfo;
 use crate::database::DbCommand;
@@ -127,15 +128,16 @@ impl Replicate {
     async fn calculate_generation_position(&self, generation: &str) -> Result<WalGenerationPos> {
         // Fetch last snapshot. Return error if no snapshots exist.
         let snapshot = self.max_snapshot(generation).await?;
+        let generation = Generation::try_create(generation)?;
 
         // Determine last WAL segment available.
-        let segment = self.max_wal_segment(generation).await;
+        let segment = self.max_wal_segment(generation.as_str()).await;
         let segment = match segment {
             Err(e) => {
                 if e.code() == Error::NO_WALSEGMENT_ERROR {
                     // Use snapshot if none exist.
                     return Ok(WalGenerationPos {
-                        generation: generation.to_string(),
+                        generation,
                         index: snapshot.index,
                         offset: 0,
                     });
@@ -276,7 +278,7 @@ impl Replicate {
             position.clone()
         };
         if generation != position.generation {
-            let snapshots = self.client.snapshots(&generation).await?;
+            let snapshots = self.client.snapshots(generation.as_str()).await?;
             if snapshots.len() == 0 {
                 // Create snapshot if no snapshots exist for generation.
                 self.db_notifier
@@ -286,7 +288,9 @@ impl Replicate {
                 return Ok(());
             }
 
-            let pos = self.calculate_generation_position(&generation).await?;
+            let pos = self
+                .calculate_generation_position(generation.as_str())
+                .await?;
             *self.position.write() = pos;
         }
 

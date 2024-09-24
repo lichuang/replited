@@ -24,9 +24,6 @@ use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use uuid::timestamp;
-use uuid::NoContext;
-use uuid::Uuid;
 
 use crate::base::compress_file;
 use crate::base::generation_dir;
@@ -37,6 +34,7 @@ use crate::base::parse_wal_path;
 use crate::base::path_base;
 use crate::base::shadow_wal_dir;
 use crate::base::shadow_wal_file;
+use crate::base::Generation;
 use crate::base::TempFile;
 use crate::config::DbConfig;
 use crate::error::Error;
@@ -102,10 +100,10 @@ pub struct Database {
 }
 
 // position info of wal for a genaration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct WalGenerationPos {
     // generation name
-    pub generation: String,
+    pub generation: Generation,
 
     // wal file index
     pub index: u64,
@@ -114,25 +112,15 @@ pub struct WalGenerationPos {
     pub offset: u64,
 }
 
-impl Default for WalGenerationPos {
-    fn default() -> Self {
-        Self {
-            generation: "".to_string(),
-            index: 0,
-            offset: 0,
-        }
-    }
-}
-
 impl WalGenerationPos {
     pub fn is_empty(&self) -> bool {
-        self.generation.len() == 0 && self.index == 0 && self.offset == 0
+        self.generation.is_empty() && self.index == 0 && self.offset == 0
     }
 }
 
 #[derive(Debug, Default)]
 struct SyncInfo {
-    pub generation: String,
+    pub generation: Generation,
     pub db_mod_time: Option<SystemTime>,
     pub index: u64,
     pub wal_size: u64,
@@ -294,11 +282,13 @@ impl Database {
             info.generation = self.create_generation().await?;
             info!(
                 "db {} sync new generation: {}, reason: {}",
-                self.config.db, info.generation, reason
+                self.config.db,
+                info.generation.as_str(),
+                reason
             );
 
             // Clear shadow wal info.
-            info.shadow_wal_file = shadow_wal_file(&self.meta_dir, &info.generation, 0);
+            info.shadow_wal_file = shadow_wal_file(&self.meta_dir, info.generation.as_str(), 0);
             info.shadow_wal_size = WAL_HEADER_SIZE;
             info.restart = false;
             info.reason = None;
@@ -340,7 +330,7 @@ impl Database {
         if checkpoint {
             changed = true;
 
-            self.do_checkpoint(&info.generation, checkmode)?;
+            self.do_checkpoint(info.generation.as_str(), checkmode)?;
         }
 
         // Clean up any old files.
@@ -359,11 +349,11 @@ impl Database {
     }
 
     pub fn wal_generation_position(&self) -> Result<WalGenerationPos> {
-        let generation = self.current_generation()?;
+        let generation = Generation::try_create(&self.current_generation()?)?;
 
-        let (index, _total_size) = self.current_shadow_index(&generation)?;
+        let (index, _total_size) = self.current_shadow_index(generation.as_str())?;
 
-        let shadow_wal_file = self.shadow_wal_file(&generation, index);
+        let shadow_wal_file = self.shadow_wal_file(generation.as_str(), index);
 
         match fs::exists(&shadow_wal_file) {
             Err(e) => {
@@ -408,18 +398,19 @@ impl Database {
     // create_generation initiates a new generation by establishing the generation
     // directory, capturing snapshots for each replica, and refreshing the current
     // generation name.
-    async fn create_generation(&mut self) -> Result<String> {
-        // Generate random generation using UUID V7
-        let timestamp = timestamp::Timestamp::now(NoContext);
-        let generation = Uuid::new_v7(timestamp).as_simple().to_string();
-        fs::write(generation_file_path(&self.meta_dir), generation.clone())?;
+    async fn create_generation(&mut self) -> Result<Generation> {
+        let generation = Generation::new();
+        fs::write(
+            generation_file_path(&self.meta_dir),
+            generation.as_str().to_string(),
+        )?;
 
         // create new directory.
-        let dir = generation_dir(&self.meta_dir, &generation);
+        let dir = generation_dir(&self.meta_dir, generation.as_str());
         fs::create_dir_all(&dir)?;
 
         // init first(index 0) shadow wal file
-        self.init_shadow_wal_file(&self.shadow_wal_file(&generation, 0))?;
+        self.init_shadow_wal_file(&self.shadow_wal_file(generation.as_str(), 0))?;
 
         // Remove old generations.
         self.clean()?;
@@ -439,7 +430,8 @@ impl Database {
         let index = parse_wal_path(&info.shadow_wal_file)?;
 
         // Start a new shadow WAL file with next index.
-        let new_shadow_wal_file = shadow_wal_file(&self.meta_dir, &info.generation, index + 1);
+        let new_shadow_wal_file =
+            shadow_wal_file(&self.meta_dir, info.generation.as_str(), index + 1);
         let new_size = self.init_shadow_wal_file(&new_shadow_wal_file)?;
 
         Ok((orig_size, new_size))
@@ -481,7 +473,7 @@ impl Database {
 
     // removes WAL files that have been replicated.
     fn clean_wal(&self) -> Result<()> {
-        let generation = self.current_generation()?;
+        let generation = Generation::try_create(&self.current_generation()?)?;
 
         let mut min = None;
         for sync in &self.syncs {
@@ -513,7 +505,7 @@ impl Database {
         min -= 1;
 
         // Remove all WAL files for the generation before the lowest index.
-        let dir = shadow_wal_dir(&self.meta_dir, &generation);
+        let dir = shadow_wal_dir(&self.meta_dir, generation.as_str());
         if !fs::exists(&dir)? {
             return Ok(());
         }
@@ -787,7 +779,7 @@ impl Database {
             info.reason = Some("no generation exists".to_string());
             return Ok(info);
         }
-        info.generation = generation;
+        info.generation = Generation::try_create(&generation)?;
 
         let db_file = fs::metadata(&self.config.db)?;
         if let Ok(db_mod_time) = db_file.modified() {
@@ -802,12 +794,12 @@ impl Database {
         info.wal_size = wal_size;
 
         // get current shadow wal index
-        let (index, _total_size) = self.current_shadow_index(&info.generation)?;
+        let (index, _total_size) = self.current_shadow_index(&generation)?;
         if index > MAX_WAL_INDEX {
             info.reason = Some("max index exceeded".to_string());
             return Ok(info);
         }
-        info.shadow_wal_file = self.shadow_wal_file(&info.generation, index);
+        info.shadow_wal_file = self.shadow_wal_file(&generation, index);
 
         // Determine shadow WAL current size.
         if !fs::exists(&info.shadow_wal_file)? {
