@@ -116,7 +116,7 @@ impl Restore {
 
     pub async fn run(&self) -> Result<()> {
         // Ensure output path does not already exist.
-        if !self.options.overwrite && fs::exists(&self.options.output)? {
+        if fs::exists(&self.options.output)? {
             println!("db {} already exists but cannot overwrite", self.db);
             return Err(Error::OverwriteDbError("cannot overwrite exist db"));
         }
