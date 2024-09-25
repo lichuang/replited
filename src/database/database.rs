@@ -131,13 +131,13 @@ impl Database {
         // busy timeout
         connection.busy_timeout(Duration::from_secs(1))?;
         // PRAGMA journal_mode = wal;
-        connection.pragma_update_and_check(None, "journal_mode", "WAL", |param| {
-            println!("journal_mode param: {:?}\n", param);
+        connection.pragma_update_and_check(None, "journal_mode", "WAL", |_param| {
+            // println!("journal_mode param: {:?}\n", param);
             Ok(())
         })?;
         // PRAGMA wal_autocheckpoint = 0;
-        connection.pragma_update_and_check(None, "wal_autocheckpoint", "0", |param| {
-            println!("wal_autocheckpoint param: {:?}\n", param);
+        connection.pragma_update_and_check(None, "wal_autocheckpoint", "0", |_param| {
+            // println!("wal_autocheckpoint param: {:?}\n", param);
             Ok(())
         })?;
 
@@ -603,7 +603,7 @@ impl Database {
                         debug!("copy_to_shadow_wal end of file at offset: {}", offset);
                         break;
                     } else {
-                        error!("copy_to_shadow_wal error: {}", e);
+                        error!("copy_to_shadow_wal error {} at offset {}", e, offset);
                         return Err(e);
                     }
                 }

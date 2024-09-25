@@ -1,9 +1,7 @@
-use std::io::ErrorKind;
 use std::io::Read;
 
 use super::from_be_bytes_at;
 use super::WAL_FRAME_HEADER_SIZE;
-use crate::error::Error;
 use crate::error::Result;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -20,15 +18,7 @@ pub struct WALFrame {
 impl WALFrame {
     pub fn read<R: Read + ?Sized>(reader: &mut R, page_size: u64) -> Result<WALFrame> {
         let mut data: Vec<u8> = vec![0u8; (WAL_FRAME_HEADER_SIZE + page_size) as usize];
-        if let Err(e) = reader.read_exact(&mut data) {
-            if e.kind() == ErrorKind::UnexpectedEof {
-                return Err(Error::SqliteInvalidWalFrameHeaderError(
-                    "Invalid WAL frame header",
-                ));
-            }
-
-            return Err(e.into());
-        }
+        reader.read_exact(&mut data)?;
 
         let page_num = from_be_bytes_at(&data, 0)?;
         let db_size = from_be_bytes_at(&data, 4)?;
