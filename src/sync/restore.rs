@@ -3,7 +3,8 @@ use std::fs::OpenOptions;
 use std::io::Write;
 
 use log::debug;
-use opendal::Operator;
+use log::error;
+use rusqlite::Connection;
 
 use crate::base::decompressed_data;
 use crate::base::parent_dir;
@@ -12,19 +13,15 @@ use crate::config::RestoreOptions;
 use crate::config::StorageConfig;
 use crate::error::Error;
 use crate::error::Result;
+use crate::storage::RestoreInfo;
 use crate::storage::SnapshotInfo;
 use crate::storage::StorageClient;
+use crate::storage::WalSegmentInfo;
 
 struct Restore {
     db: String,
     config: Vec<StorageConfig>,
     options: RestoreOptions,
-}
-
-struct RestoreInfo {
-    config: StorageConfig,
-    generation: String,
-    operator: Operator,
 }
 
 impl Restore {
@@ -40,42 +37,36 @@ impl Restore {
         })
     }
 
-    pub async fn decide_restore_info(&self) -> Result<Option<(SnapshotInfo, StorageClient)>> {
-        let mut latest_snapshot: Option<(SnapshotInfo, StorageClient)> = None;
+    pub async fn decide_restore_info(&self) -> Result<Option<(RestoreInfo, StorageClient)>> {
+        let mut latest_restore_info: Option<(RestoreInfo, StorageClient)> = None;
 
         for config in &self.config {
             let client = StorageClient::try_create(self.db.clone(), config.clone())?;
-            let snapshot_info = match client.latest_snapshot().await? {
+            let restore_info = match client.restore_info().await? {
                 Some(snapshot_into) => snapshot_into,
                 None => continue,
             };
-            println!("snapshot_info: {:?}", snapshot_info);
-            match &latest_snapshot {
+            match &latest_restore_info {
                 Some(ls) => {
-                    if snapshot_info.generation > ls.0.generation {
-                        latest_snapshot = Some((snapshot_info, client));
+                    if restore_info.snapshot.generation > ls.0.snapshot.generation {
+                        latest_restore_info = Some((restore_info, client));
                     }
                 }
                 None => {
-                    latest_snapshot = Some((snapshot_info, client));
+                    latest_restore_info = Some((restore_info, client));
                 }
             }
         }
 
-        Ok(latest_snapshot)
+        Ok(latest_restore_info)
     }
 
     async fn restore_snapshot(
         &self,
         client: &StorageClient,
         snapshot: &SnapshotInfo,
+        path: &str,
     ) -> Result<()> {
-        // create a temp file to write snapshot
-        let temp_output = format!("{}.tmp", self.options.output);
-
-        let dir = parent_dir(&temp_output).unwrap();
-        fs::create_dir_all(&dir)?;
-
         let compressed_data = client.read_snapshot(snapshot).await?;
         let decompressed_data = decompressed_data(compressed_data)?;
 
@@ -83,12 +74,42 @@ impl Restore {
             .write(true)
             .create(true)
             .truncate(true)
-            .open(&temp_output)?;
+            .open(&path)?;
 
         file.write(&decompressed_data)?;
 
-        // rename the temp file to output file
-        fs::rename(&temp_output, &self.options.output)?;
+        Ok(())
+    }
+
+    async fn apply_wal_frames(
+        &self,
+        client: &StorageClient,
+        wal_segments: &[WalSegmentInfo],
+        db_path: &str,
+    ) -> Result<()> {
+        let connection = Connection::open(db_path)?;
+        let wal_file_name = format!("{}-wal", db_path);
+        let sql = "PRAGMA wal_checkpoin(TRUNCATE)".to_string();
+
+        for wal_segment in wal_segments {
+            let compressed_data = client.read_wal_segment(wal_segment).await?;
+            let decompressed_data = decompressed_data(compressed_data)?;
+
+            let mut wal_file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&wal_file_name)?;
+
+            wal_file.write(&decompressed_data)?;
+            if let Err(e) = connection.execute_batch(&sql) {
+                error!(
+                    "truncation checkpoint failed during restore {}:{}",
+                    wal_segment.index, wal_segment.offset
+                );
+                return Err(e.into());
+            }
+        }
 
         Ok(())
     }
@@ -100,19 +121,31 @@ impl Restore {
             return Err(Error::OverwriteDbError("cannot overwrite exist db"));
         }
 
-        let (latest_snapshot, client) = match self.decide_restore_info().await? {
-            Some(latest_snapshot) => latest_snapshot,
+        let (latest_restore_info, client) = match self.decide_restore_info().await? {
+            Some(latest_restore_info) => latest_restore_info,
             None => {
                 debug!("cannot find snapshot");
                 return Ok(());
             }
         };
 
+        // create a temp file to write snapshot
+        let temp_output = format!("{}.tmp", self.options.output);
+
+        let dir = parent_dir(&temp_output).unwrap();
+        fs::create_dir_all(&dir)?;
+
         // restore snapshot
-        self.restore_snapshot(&client, &latest_snapshot).await?;
-        println!("after restore snapshot");
+        self.restore_snapshot(&client, &latest_restore_info.snapshot, &temp_output)
+            .await?;
 
         // apply wal frames
+        self.apply_wal_frames(&client, &latest_restore_info.wal_segments, &temp_output)
+            .await?;
+
+        // rename the temp file to output file
+        fs::rename(&temp_output, &self.options.output)?;
+
         Ok(())
     }
 }

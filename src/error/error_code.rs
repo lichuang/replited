@@ -66,6 +66,7 @@ build_error! {
     OverwriteDbError(81),
     NoGenerationError(82),
     WalReaderOffsetTooHighError(83),
+    InvalidWalSegmentError(84),
 
     // 3rd crate error
     TokioError(100),

@@ -16,6 +16,7 @@ use crate::base::walsegments_dir;
 use crate::base::Generation;
 use crate::config::StorageConfig;
 use crate::database::WalGenerationPos;
+use crate::error::Error;
 use crate::error::Result;
 
 #[derive(Debug, Clone)]
@@ -40,6 +41,12 @@ pub struct WalSegmentInfo {
     pub index: u64,
     pub offset: u64,
     pub size: u64,
+}
+
+pub struct RestoreInfo {
+    pub snapshot: SnapshotInfo,
+
+    pub wal_segments: Vec<WalSegmentInfo>,
 }
 
 impl StorageClient {
@@ -88,7 +95,6 @@ impl StorageClient {
 
     pub async fn read_snapshot(&self, info: &SnapshotInfo) -> Result<Vec<u8>> {
         let snapshot_file = snapshot_file(&self.db_name, info.generation.as_str(), info.index);
-        println!("snapshot file: {}", snapshot_file);
 
         let data = self.operator.read(&snapshot_file).await?;
 
@@ -196,7 +202,48 @@ impl StorageClient {
         Ok(bytes)
     }
 
-    pub async fn latest_snapshot(&self) -> Result<Option<SnapshotInfo>> {
+    async fn wal_segments_of(&self, snapshot: &SnapshotInfo) -> Result<Vec<WalSegmentInfo>> {
+        let mut wal_segments = self.wal_segments(snapshot.generation.as_str()).await?;
+
+        wal_segments.sort_by(|a, b| a.index.partial_cmp(&b.index).unwrap());
+
+        let mut return_wal_segments: Vec<WalSegmentInfo> = Vec::new();
+
+        for wal_segment in wal_segments {
+            if wal_segment.index < snapshot.index {
+                continue;
+            }
+
+            if return_wal_segments.is_empty() {
+                if wal_segment.offset != 0 {
+                    let msg = format!(
+                        "missing initial wal segment, generation: {:?}, index: {}, offset: {}",
+                        snapshot.generation.as_str(),
+                        wal_segment.index,
+                        wal_segment.offset
+                    );
+                    error!("{}", msg);
+                    return Err(Error::InvalidWalSegmentError(msg));
+                }
+            } else {
+                if return_wal_segments.last().unwrap().offset >= wal_segment.offset {
+                    let msg = format!(
+                        "wal segment out of order, generation: {:?}, index: {}, offset: {}",
+                        snapshot.generation.as_str(),
+                        wal_segment.index,
+                        wal_segment.offset
+                    );
+                    error!("{}", msg);
+                    return Err(Error::InvalidWalSegmentError(msg));
+                }
+            }
+
+            return_wal_segments.push(wal_segment);
+        }
+        Ok(return_wal_segments)
+    }
+
+    pub async fn restore_info(&self) -> Result<Option<RestoreInfo>> {
         let dir = remote_generations_dir(&self.db_name);
         let entries = self.operator.list(&dir).await?;
 
@@ -235,7 +282,13 @@ impl StorageClient {
                 }
             };
 
-            return Ok(Some(snapshot));
+            // return only if wal segments in this snapshot is valid.
+            if let Ok(wal_segments) = self.wal_segments_of(&snapshot).await {
+                return Ok(Some(RestoreInfo {
+                    snapshot,
+                    wal_segments,
+                }));
+            }
         }
 
         Ok(None)
