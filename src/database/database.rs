@@ -9,6 +9,7 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::SystemTime;
 
@@ -96,10 +97,10 @@ pub struct Database {
     syncs: Vec<Replicate>,
 
     // checkpoint mutex
-    checkpoint_mutex: Mutex<()>,
+    checkpoint_mutex: Arc<Mutex<()>>,
 }
 
-// position info of wal for a genaration
+// position info of wal for a generation
 #[derive(Debug, Clone, Default)]
 pub struct WalGenerationPos {
     // generation name
@@ -135,12 +136,12 @@ impl Database {
         // busy timeout
         connection.busy_timeout(Duration::from_secs(1))?;
         // PRAGMA journal_mode = wal;
-        connection.pragma_update_and_check(None, "journal_mode", &"WAL", |param| {
+        connection.pragma_update_and_check(None, "journal_mode", "WAL", |param| {
             println!("journal_mode param: {:?}\n", param);
             Ok(())
         })?;
         // PRAGMA wal_autocheckpoint = 0;
-        connection.pragma_update_and_check(None, "wal_autocheckpoint", &"0", |param| {
+        connection.pragma_update_and_check(None, "wal_autocheckpoint", "0", |param| {
             println!("wal_autocheckpoint param: {:?}\n", param);
             Ok(())
         })?;
@@ -215,7 +216,7 @@ impl Database {
         let mut syncs = Vec::with_capacity(config.replicate.len());
         let info = DatabaseInfo {
             meta_dir: meta_dir.clone(),
-            page_size: page_size,
+            page_size,
         };
         let db = Path::new(&config.db)
             .file_name()
@@ -248,7 +249,7 @@ impl Database {
             sync_notifiers,
             sync_handle,
             syncs,
-            checkpoint_mutex: Mutex::new(()),
+            checkpoint_mutex: Arc::new(Mutex::new(())),
         };
 
         db.acquire_read_lock()?;
@@ -317,7 +318,7 @@ impl Database {
             if let Some(db_mod_time) = &info.db_mod_time {
                 let now = SystemTime::now();
 
-                if let Ok(duration) = now.duration_since(db_mod_time.clone()) {
+                if let Ok(duration) = now.duration_since(*db_mod_time) {
                     if duration.as_secs() > self.config.checkpoint_interval_secs
                         && new_wal_size > self.calc_wal_size(1)
                     {
@@ -385,9 +386,9 @@ impl Database {
 
     // CurrentShadowWALPath returns the path to the last shadow WAL in a generation.
     fn current_shadow_wal_file(&self, generation: &str) -> Result<String> {
-        let (index, _total_size) = self.current_shadow_index(&generation)?;
+        let (index, _total_size) = self.current_shadow_index(generation)?;
 
-        Ok(self.shadow_wal_file(&generation, index))
+        Ok(self.shadow_wal_file(generation, index))
     }
 
     // returns the path of a single shadow WAL file.
@@ -400,10 +401,7 @@ impl Database {
     // generation name.
     async fn create_generation(&mut self) -> Result<Generation> {
         let generation = Generation::new();
-        fs::write(
-            generation_file_path(&self.meta_dir),
-            generation.as_str().to_string(),
-        )?;
+        fs::write(generation_file_path(&self.meta_dir), generation.as_str())?;
 
         // create new directory.
         let dir = generation_dir(&self.meta_dir, generation.as_str());
@@ -498,7 +496,7 @@ impl Database {
             Some(min) => min,
         };
 
-        if min <= 0 {
+        if min == 0 {
             return Ok(());
         }
         // Keep an extra WAL file.
@@ -540,28 +538,28 @@ impl Database {
         // create new shadow wal file
         let db_file_metadata = fs::metadata(&self.config.db)?;
         let mode = db_file_metadata.mode();
-        let dir = parent_dir(&shadow_wal);
+        let dir = parent_dir(shadow_wal);
         if let Some(dir) = dir {
             fs::create_dir_all(&dir)?;
         } else {
             debug!("db {} cannot find parent dir of shadow wal", self.config.db);
         }
-        let mut shadow_wal_file = fs::File::create(&shadow_wal)?;
+        let mut shadow_wal_file = fs::File::create(shadow_wal)?;
         let mut permissions = shadow_wal_file.metadata()?.permissions();
         permissions.set_mode(mode);
         shadow_wal_file.set_permissions(permissions)?;
         std::os::unix::fs::chown(
-            &shadow_wal,
+            shadow_wal,
             Some(db_file_metadata.uid()),
             Some(db_file_metadata.gid()),
         )?;
         // write wal file header into shadow wal file
-        shadow_wal_file.write(&wal_header.data)?;
+        shadow_wal_file.write_all(&wal_header.data)?;
         shadow_wal_file.flush()?;
         debug!("create shadow wal file {}", shadow_wal);
 
         // copy wal file frame into shadow wal file
-        let (_, new_size) = self.copy_to_shadow_wal(&shadow_wal)?;
+        let (_, new_size) = self.copy_to_shadow_wal(shadow_wal)?;
 
         Ok(new_size)
     }
@@ -597,7 +595,7 @@ impl Database {
         let mut wal_file = File::open(&self.wal_file)?;
         wal_file.seek(SeekFrom::Start(orig_shadow_wal_size))?;
         // read last checksum of shadow wal file
-        let (ck1, ck2) = read_last_checksum(&shadow_wal, self.page_size)?;
+        let (ck1, ck2) = read_last_checksum(shadow_wal, self.page_size)?;
         let mut offset = orig_shadow_wal_size;
         let mut last_commit_size = orig_shadow_wal_size;
         // Read through WAL from last position to find the page of the last
@@ -637,7 +635,7 @@ impl Database {
             }
 
             // Write page to temporary WAL file.
-            temp_file.write(&wal_frame.data)?;
+            temp_file.write_all(&wal_frame.data)?;
 
             offset += wal_frame.data.len() as u64;
             if wal_frame.db_size != 0 {
@@ -665,7 +663,7 @@ impl Database {
         // in debug mode, assert last frame match
         #[cfg(debug_assertions)]
         {
-            let shadow_wal_file = fs::metadata(&shadow_wal)?;
+            let shadow_wal_file = fs::metadata(shadow_wal)?;
             let shadow_wal_size = align_frame(self.page_size, shadow_wal_file.len());
 
             let offset = shadow_wal_size - self.page_size - WAL_FRAME_HEADER_SIZE;
@@ -716,33 +714,31 @@ impl Database {
         let entries = fs::read_dir(&wal_dir)?;
         let mut total_size = 0;
         let mut index = 0;
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let file_type = entry.file_type()?;
-                let file_name = entry.file_name().into_string().unwrap();
-                let path = Path::new(&wal_dir).join(&file_name);
-                if !fs::exists(&path)? {
-                    // file was deleted after os.ReadDir returned
-                    debug!(
-                        "db {} shadow wal {:?} deleted after read_dir return",
-                        self.config.db, path
-                    );
+        for entry in entries.flatten() {
+            let file_type = entry.file_type()?;
+            let file_name = entry.file_name().into_string().unwrap();
+            let path = Path::new(&wal_dir).join(&file_name);
+            if !fs::exists(&path)? {
+                // file was deleted after os.ReadDir returned
+                debug!(
+                    "db {} shadow wal {:?} deleted after read_dir return",
+                    self.config.db, path
+                );
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+            let metadata = entry.metadata()?;
+            total_size += metadata.size();
+            match parse_wal_path(&file_name) {
+                Err(e) => {
+                    debug!("invalid wal file {:?}, err:{:?}", file_name, e);
                     continue;
                 }
-                if !file_type.is_file() {
-                    continue;
-                }
-                let metadata = entry.metadata()?;
-                total_size += metadata.size();
-                match parse_wal_path(&file_name) {
-                    Err(e) => {
-                        debug!("invald wal file {:?}, err:{:?}", file_name, e);
-                        continue;
-                    }
-                    Ok(i) => {
-                        if i > index {
-                            index = i;
-                        }
+                Ok(i) => {
+                    if i > index {
+                        index = i;
                     }
                 }
             }
@@ -938,7 +934,7 @@ impl Database {
         // Reacquire the read lock immediately after the checkpoint.
         self.acquire_read_lock()?;
 
-        let _ = ret?;
+        ret?;
 
         Ok(())
     }
@@ -993,11 +989,9 @@ pub async fn run_database(config: DbConfig) -> Result<()> {
     loop {
         select! {
             cmd = db_receiver.recv() => {
-                match cmd {
-                    Some(cmd) => if let Err(e) = database.handle_db_command(cmd).await {
-                        error!("handle_db_command of db {} error: {:?}", database.config.db, e);
-                    },
-                    None => {}
+                 if let Some(cmd) = cmd { if let Err(e) = database.handle_db_command(cmd).await {
+                     error!("handle_db_command of db {} error: {:?}", database.config.db, e);
+                    }
                 }
             }
             _ = sleep(DEFAULT_MONITOR_INTERVAL) => {

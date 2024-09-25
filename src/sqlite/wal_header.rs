@@ -36,9 +36,9 @@ impl WALHeader {
 
         let magic: &[u8] = &data[0..4];
         // check magic
-        let is_big_endian = if magic == &WAL_HEADER_BIG_ENDIAN_MAGIC {
+        let is_big_endian = if magic == WAL_HEADER_BIG_ENDIAN_MAGIC {
             true
-        } else if magic == &WAL_HEADER_LITTLE_ENDIAN_MAGIC {
+        } else if magic == WAL_HEADER_LITTLE_ENDIAN_MAGIC {
             false
         } else {
             return Err(Error::SqliteInvalidWalHeaderError(

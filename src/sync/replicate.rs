@@ -91,7 +91,7 @@ impl Replicate {
 
     // returns the last snapshot in a generation.
     async fn max_snapshot(&self, generation: &str) -> Result<SnapshotInfo> {
-        let snapshots = self.client.snapshots(&generation).await?;
+        let snapshots = self.client.snapshots(generation).await?;
         if snapshots.is_empty() {
             return Err(Error::NoSnapshotError(generation));
         }
@@ -109,7 +109,7 @@ impl Replicate {
 
     // returns the highest WAL segment in a generation.
     async fn max_wal_segment(&self, generation: &str) -> Result<WalSegmentInfo> {
-        let wal_segments = self.client.wal_segments(&generation).await?;
+        let wal_segments = self.client.wal_segments(generation).await?;
         if wal_segments.is_empty() {
             return Err(Error::NoWalsegmentError(generation));
         }
@@ -203,8 +203,7 @@ impl Replicate {
         }
         let compressed_data = compress_buffer(&data)?;
 
-        let _ = self
-            .client
+        self.client
             .write_wal_segment(&init_pos, compressed_data)
             .await?;
 
@@ -279,7 +278,7 @@ impl Replicate {
         };
         if generation != position.generation {
             let snapshots = self.client.snapshots(generation.as_str()).await?;
-            if snapshots.len() == 0 {
+            if snapshots.is_empty() {
                 // Create snapshot if no snapshots exist for generation.
                 self.db_notifier
                     .send(DbCommand::Snapshot(self.index))

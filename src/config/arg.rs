@@ -32,11 +32,11 @@ pub struct RestoreOptions {
     pub output: String,
 
     // restore db generation string.
-    // when empty, use the most recent genaration from replicates.
+    // when empty, use the most recent generation from replicates.
     #[arg(short, long, default_value = "")]
     pub generation: String,
 
-    // if overwrite exsiting db in the same path
+    // if overwrite existing db in the same path
     #[arg(long, default_value_t = false)]
     pub overwrite: bool,
 }

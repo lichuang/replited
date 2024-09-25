@@ -1,4 +1,5 @@
 mod arg;
+#[allow(clippy::module_inception)]
 mod config;
 mod storage_params;
 

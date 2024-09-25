@@ -13,7 +13,7 @@ pub fn compress_buffer(data: &[u8]) -> Result<Vec<u8>> {
     let mut buffer = Vec::with_capacity(data.len());
     let mut encoder = EncoderBuilder::new().build(&mut buffer)?;
 
-    encoder.write_all(&data)?;
+    encoder.write_all(data)?;
     let (compressed_data, result) = encoder.finish();
     result?;
 

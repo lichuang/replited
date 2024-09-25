@@ -11,8 +11,8 @@ use crate::base::mask_string;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum StorageParams {
-    Fs(StorageFsConfig),
-    S3(StorageS3Config),
+    Fs(Box<StorageFsConfig>),
+    S3(Box<StorageS3Config>),
 }
 
 impl StorageParams {

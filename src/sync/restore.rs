@@ -74,9 +74,9 @@ impl Restore {
             .write(true)
             .create(true)
             .truncate(true)
-            .open(&path)?;
+            .open(path)?;
 
-        file.write(&decompressed_data)?;
+        file.write_all(&decompressed_data)?;
 
         Ok(())
     }
@@ -101,7 +101,7 @@ impl Restore {
                 .truncate(true)
                 .open(&wal_file_name)?;
 
-            wal_file.write(&decompressed_data)?;
+            wal_file.write_all(&decompressed_data)?;
             if let Err(e) = connection.execute_batch(&sql) {
                 error!(
                     "truncation checkpoint failed during restore {}:{}",

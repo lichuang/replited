@@ -40,7 +40,7 @@ impl ShadowWalReader {
                 if e.code() == Error::STORAGE_NOT_FOUND {
                     return Err(Error::from_error_code(
                         Error::UNEXPECTED_EOF_ERROR,
-                        format!("no wal shadow file"),
+                        "no wal shadow file".to_string(),
                     ));
                 }
                 Err(e)

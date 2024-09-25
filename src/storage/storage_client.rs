@@ -225,17 +225,15 @@ impl StorageClient {
                     error!("{}", msg);
                     return Err(Error::InvalidWalSegmentError(msg));
                 }
-            } else {
-                if return_wal_segments.last().unwrap().offset >= wal_segment.offset {
-                    let msg = format!(
-                        "wal segment out of order, generation: {:?}, index: {}, offset: {}",
-                        snapshot.generation.as_str(),
-                        wal_segment.index,
-                        wal_segment.offset
-                    );
-                    error!("{}", msg);
-                    return Err(Error::InvalidWalSegmentError(msg));
-                }
+            } else if return_wal_segments.last().unwrap().offset >= wal_segment.offset {
+                let msg = format!(
+                    "wal segment out of order, generation: {:?}, index: {}, offset: {}",
+                    snapshot.generation.as_str(),
+                    wal_segment.index,
+                    wal_segment.offset
+                );
+                error!("{}", msg);
+                return Err(Error::InvalidWalSegmentError(msg));
             }
 
             return_wal_segments.push(wal_segment);

@@ -1,5 +1,4 @@
 use log::LevelFilter;
-use log4rs;
 use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
 use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
 use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
@@ -33,7 +32,7 @@ pub fn init_log(log_config: LogConfig) -> Result<()> {
         CompoundPolicy::new(Box::new(size_trigger), Box::new(fixed_window_roller));
 
     let file_appender = RollingFileAppender::builder()
-        .encoder(Box::new(PatternEncoder::new(&log_line_pattern)))
+        .encoder(Box::new(PatternEncoder::new(log_line_pattern)))
         .build(&log_file, Box::new(compound_policy))?;
 
     let bulder = Config::builder()
