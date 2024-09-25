@@ -9,14 +9,12 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::SystemTime;
 
 use log::debug;
 use log::error;
 use log::info;
-use parking_lot::Mutex;
 use rusqlite::Connection;
 use rusqlite::DropBehavior;
 use tokio::select;
@@ -95,9 +93,6 @@ pub struct Database {
     // sync: Vec<Sync>,
     sync_handle: Vec<JoinHandle<()>>,
     syncs: Vec<Replicate>,
-
-    // checkpoint mutex
-    checkpoint_mutex: Arc<Mutex<()>>,
 }
 
 // position info of wal for a generation
@@ -249,7 +244,6 @@ impl Database {
             sync_notifiers,
             sync_handle,
             syncs,
-            checkpoint_mutex: Arc::new(Mutex::new(())),
         };
 
         db.acquire_read_lock()?;
@@ -865,9 +859,6 @@ impl Database {
     // new shadow WAL file.
     fn do_checkpoint(&mut self, generation: &str, mode: &str) -> Result<()> {
         // Try getting a checkpoint lock, will fail during snapshots.
-        if self.checkpoint_mutex.try_lock().is_none() {
-            return Ok(());
-        }
 
         let shadow_wal_file = self.current_shadow_wal_file(generation)?;
 
@@ -951,7 +942,6 @@ impl Database {
         self.checkpoint(CHECKPOINT_MODE_PASSIVE)?;
 
         // Prevent internal checkpoints during snapshot.
-        let _ = self.checkpoint_mutex.lock();
 
         // Acquire a read lock on the database during snapshot to prevent external checkpoints.
         self.acquire_read_lock()?;
