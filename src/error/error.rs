@@ -1,6 +1,18 @@
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::sync::Arc;
+
+use backtrace::Backtrace;
+
+use super::backtrace::capture;
+
+#[derive(Clone)]
+pub enum ErrorCodeBacktrace {
+    Serialized(Arc<String>),
+    Symbols(Arc<Backtrace>),
+    Address(Arc<Backtrace>),
+}
 
 #[derive(thiserror::Error)]
 pub struct Error {
@@ -9,6 +21,7 @@ pub struct Error {
     display_text: String,
     detail: String,
     cause: Option<Box<dyn std::error::Error + Sync + Send>>,
+    backtrace: Option<ErrorCodeBacktrace>,
 }
 
 impl Error {
@@ -32,6 +45,10 @@ impl Error {
             format!("{}\n{}", msg, self.detail)
         }
     }
+
+    pub fn backtrace(&self) -> Option<ErrorCodeBacktrace> {
+        self.backtrace.clone()
+    }
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -44,7 +61,26 @@ impl Debug for Error {
             self.name,
             self.code(),
             self.message(),
-        )
+        )?;
+
+        match self.backtrace.as_ref() {
+            None => write!(
+                f,
+                "\n\n<Backtrace disabled by default. Please use RUST_BACKTRACE=1 to enable> "
+            ),
+            Some(backtrace) => match backtrace {
+                ErrorCodeBacktrace::Symbols(backtrace) => write!(f, "\n\n{:?}", backtrace),
+                ErrorCodeBacktrace::Serialized(backtrace) => write!(f, "\n\n{}", backtrace),
+                ErrorCodeBacktrace::Address(backtrace) => {
+                    let frames_address = backtrace
+                        .frames()
+                        .iter()
+                        .map(|f| (f.ip() as usize, f.symbol_address() as usize))
+                        .collect::<Vec<_>>();
+                    write!(f, "\n\n{:?}", frames_address)
+                }
+            },
+        }
     }
 }
 
@@ -69,6 +105,7 @@ impl Error {
             display_text: error.to_string(),
             detail: String::new(),
             cause: None,
+            backtrace: capture(),
         }
     }
 
@@ -79,6 +116,7 @@ impl Error {
             display_text: display_text.to_string(),
             detail: String::new(),
             cause: None,
+            backtrace: capture(),
         }
     }
 
@@ -89,6 +127,7 @@ impl Error {
             display_text: error,
             detail: String::new(),
             cause: None,
+            backtrace: capture(),
         }
     }
 
@@ -99,6 +138,7 @@ impl Error {
             display_text: error,
             detail: String::new(),
             cause: None,
+            backtrace: capture(),
         }
     }
 
@@ -108,6 +148,7 @@ impl Error {
         display_text: String,
         detail: String,
         cause: Option<Box<dyn std::error::Error + Sync + Send>>,
+        backtrace: Option<ErrorCodeBacktrace>,
     ) -> Error {
         Error {
             code,
@@ -115,6 +156,7 @@ impl Error {
             detail,
             cause,
             name: name.to_string(),
+            backtrace,
         }
     }
 }
@@ -127,6 +169,7 @@ impl Clone for Error {
             self.display_text(),
             self.detail.clone(),
             None,
+            self.backtrace(),
         )
     }
 }

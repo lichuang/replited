@@ -49,7 +49,7 @@ use crate::sqlite::CHECKPOINT_MODE_TRUNCATE;
 use crate::sqlite::WAL_FRAME_HEADER_SIZE;
 use crate::sqlite::WAL_HEADER_SIZE;
 use crate::sync::Replicate;
-use crate::sync::SyncCommand;
+use crate::sync::ReplicateCommand;
 
 const GENERATION_LEN: usize = 32;
 
@@ -89,8 +89,7 @@ pub struct Database {
     tx_connection: Option<Connection>,
 
     // for sync
-    sync_notifiers: Vec<Sender<SyncCommand>>,
-    // sync: Vec<Sync>,
+    sync_notifiers: Vec<Sender<ReplicateCommand>>,
     sync_handle: Vec<JoinHandle<()>>,
     syncs: Vec<Replicate>,
 }
@@ -248,6 +247,7 @@ impl Database {
 
         db.acquire_read_lock()?;
 
+        // If we have an existing shadow WAL, ensure the headers match.
         if let Err(err) = db.verify_header_match() {
             debug!(
                 "db {} cannot determine last wal position, error: {:?}, clearing generation",
@@ -257,6 +257,15 @@ impl Database {
             if let Err(e) = fs::remove_file(generation_file_path(&db.meta_dir)) {
                 error!("db {} remove generation file error: {:?}", db.config.db, e);
             }
+        }
+
+        // Clean up previous generations.
+        if let Err(e) = db.clean() {
+            error!(
+                "db {} clean previous generations error {:?} when startup",
+                db.config.db, e
+            );
+            return Err(e);
         }
 
         Ok((db, db_receiver))
@@ -368,7 +377,7 @@ impl Database {
         if changed {
             let generation_pos = self.wal_generation_position()?;
             self.sync_notifiers[0]
-                .send(SyncCommand::DbChanged(generation_pos))
+                .send(ReplicateCommand::DbChanged(generation_pos))
                 .await?;
         }
 
@@ -482,6 +491,7 @@ impl Database {
             let entry = entry?;
             let file_name = entry.file_name().as_os_str().to_str().unwrap().to_string();
             let base = path_base(&file_name)?;
+            // skip the current generation
             if base == generation {
                 continue;
             }
@@ -498,13 +508,13 @@ impl Database {
 
     // removes WAL files that have been replicated.
     fn clean_wal(&self) -> Result<()> {
-        let generation = Generation::try_create(&self.current_generation()?)?;
+        let generation = self.current_generation()?;
 
         let mut min = None;
         for sync in &self.syncs {
             // let sync = sync.read().await;
             let mut position = sync.position();
-            if position.generation != generation {
+            if position.generation.as_str() != &generation {
                 position = WalGenerationPos::default();
             }
             match min {
@@ -534,8 +544,7 @@ impl Database {
         if !fs::exists(&dir)? {
             return Ok(());
         }
-        for entry in fs::read_dir(&dir)? {
-            let entry = entry?;
+        for entry in fs::read_dir(&dir)?.flatten() {
             let file_name = entry.file_name().as_os_str().to_str().unwrap().to_string();
             let index = parse_wal_path(&file_name)?;
             if index >= min {
@@ -547,7 +556,8 @@ impl Database {
                 .to_str()
                 .unwrap()
                 .to_string();
-            fs::remove_dir_all(&path)?;
+            println!("path: {}", path);
+            fs::remove_file(&path)?;
         }
 
         Ok(())
@@ -995,7 +1005,10 @@ impl Database {
         let compressed_data = self.snapshot()?;
         let generation_pos = self.wal_generation_position()?;
         self.sync_notifiers[index]
-            .send(SyncCommand::Snapshot((generation_pos, compressed_data)))
+            .send(ReplicateCommand::Snapshot((
+                generation_pos,
+                compressed_data,
+            )))
             .await?;
         Ok(())
     }

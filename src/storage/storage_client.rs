@@ -43,6 +43,7 @@ pub struct WalSegmentInfo {
     pub size: u64,
 }
 
+#[derive(Debug)]
 pub struct RestoreInfo {
     pub snapshot: SnapshotInfo,
 
@@ -171,7 +172,7 @@ impl StorageClient {
 
     pub async fn wal_segments(&self, generation: &str) -> Result<Vec<WalSegmentInfo>> {
         let generation = Generation::try_create(generation)?;
-        let walsegments_dir = walsegments_dir(&self.db_path, generation.as_str());
+        let walsegments_dir = walsegments_dir(&self.db_name, generation.as_str());
         let entries = self
             .operator
             .list_with(&walsegments_dir)
@@ -210,6 +211,7 @@ impl StorageClient {
         let mut return_wal_segments: Vec<WalSegmentInfo> = Vec::new();
 
         for wal_segment in wal_segments {
+            println!("wal_segment: {:?}, snapshot: {:?}", wal_segment, snapshot);
             if wal_segment.index < snapshot.index {
                 continue;
             }

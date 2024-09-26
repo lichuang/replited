@@ -27,13 +27,13 @@ use crate::storage::StorageClient;
 use crate::storage::WalSegmentInfo;
 
 #[derive(Clone, Debug)]
-pub enum SyncCommand {
+pub enum ReplicateCommand {
     DbChanged(WalGenerationPos),
     Snapshot((WalGenerationPos, Vec<u8>)),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum SyncState {
+enum ReplicateState {
     WaitDbChanged,
     WaitSnapshot,
 }
@@ -45,7 +45,7 @@ pub struct Replicate {
     client: StorageClient,
     db_notifier: Sender<DbCommand>,
     position: Arc<RwLock<WalGenerationPos>>,
-    state: SyncState,
+    state: ReplicateState,
     info: DatabaseInfo,
     config: StorageConfig,
 }
@@ -65,12 +65,12 @@ impl Replicate {
             db_notifier,
             client: StorageClient::try_create(db, config.clone())?,
             config,
-            state: SyncState::WaitDbChanged,
+            state: ReplicateState::WaitDbChanged,
             info,
         })
     }
 
-    pub fn start(s: Replicate, rx: Receiver<SyncCommand>) -> Result<JoinHandle<()>> {
+    pub fn start(s: Replicate, rx: Receiver<ReplicateCommand>) -> Result<JoinHandle<()>> {
         let s = s.clone();
         let handle = tokio::spawn(async move {
             let _ = Replicate::main(s, rx).await;
@@ -79,7 +79,7 @@ impl Replicate {
         Ok(handle)
     }
 
-    pub async fn main(s: Replicate, rx: Receiver<SyncCommand>) -> Result<()> {
+    pub async fn main(s: Replicate, rx: Receiver<ReplicateCommand>) -> Result<()> {
         let mut rx = rx;
         let mut s = s;
         loop {
@@ -168,7 +168,7 @@ impl Replicate {
         let init_pos = reader.position();
         let mut data = Vec::new();
 
-        debug!("db {} write wal segment position {:?}", self.db, init_pos,);
+        // debug!("db {} write wal segment position {:?}", self.db, init_pos,);
 
         // Copy header if at offset zero.
         let mut salt1 = 0;
@@ -225,16 +225,16 @@ impl Replicate {
         *position = WalGenerationPos::default();
     }
 
-    async fn command(&mut self, cmd: SyncCommand) -> Result<()> {
+    async fn command(&mut self, cmd: ReplicateCommand) -> Result<()> {
         match cmd {
-            SyncCommand::DbChanged(pos) => {
+            ReplicateCommand::DbChanged(pos) => {
                 if let Err(e) = self.sync(pos).await {
                     error!("sync db error: {:?}", e);
                     // Clear last position if if an error occurs during sync.
                     self.reset_position();
                 }
             }
-            SyncCommand::Snapshot((pos, compressed_data)) => {
+            ReplicateCommand::Snapshot((pos, compressed_data)) => {
                 if let Err(e) = self.sync_snapshot(pos, compressed_data).await {
                     error!("sync db snapshot error: {:?}", e);
                 }
@@ -249,7 +249,7 @@ impl Replicate {
         compressed_data: Vec<u8>,
     ) -> Result<()> {
         info!("db {} sync snapshot {:?}", self.db, pos);
-        debug_assert_eq!(self.state, SyncState::WaitSnapshot);
+        debug_assert_eq!(self.state, ReplicateState::WaitSnapshot);
         if pos.offset == 0 {
             return Ok(());
         }
@@ -257,14 +257,14 @@ impl Replicate {
         let _ = self.client.write_snapshot(&pos, compressed_data).await?;
 
         // change state from WaitSnapshot to WaitDbChanged
-        self.state = SyncState::WaitDbChanged;
+        self.state = ReplicateState::WaitDbChanged;
         self.sync(pos).await
     }
 
     async fn sync(&mut self, pos: WalGenerationPos) -> Result<()> {
         info!("replica sync pos: {:?}\n", pos);
 
-        if self.state == SyncState::WaitSnapshot {
+        if self.state == ReplicateState::WaitSnapshot {
             return Ok(());
         }
 
@@ -294,7 +294,7 @@ impl Replicate {
                 self.db_notifier
                     .send(DbCommand::Snapshot(self.index))
                     .await?;
-                self.state = SyncState::WaitSnapshot;
+                self.state = ReplicateState::WaitSnapshot;
                 return Ok(());
             }
 

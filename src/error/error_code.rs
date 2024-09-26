@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+use super::backtrace::capture;
 use crate::error::Error;
 
 macro_rules! build_error {
@@ -22,6 +23,7 @@ macro_rules! build_error {
                         display_text.into(),
                         String::new(),
                         None,
+                        capture(),
                     )
                 }
             )*

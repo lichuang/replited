@@ -3,9 +3,10 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::time::SystemTimeError;
 
+use super::capture;
 use crate::database::DbCommand;
 use crate::error::Error;
-use crate::sync::SyncCommand;
+use crate::sync::ReplicateCommand;
 
 #[derive(thiserror::Error)]
 enum OtherErrors {
@@ -48,6 +49,7 @@ impl From<anyhow::Error> for Error {
             format!("{}, source: {:?}", error, error.source()),
             String::new(),
             Some(Box::new(OtherErrors::AnyHow { error })),
+            capture(),
         )
     }
 }
@@ -97,9 +99,12 @@ impl From<uuid::Error> for Error {
     }
 }
 
-impl From<tokio::sync::mpsc::error::SendError<SyncCommand>> for Error {
-    fn from(e: tokio::sync::mpsc::error::SendError<SyncCommand>) -> Error {
-        Error::TokioError(format!("tokio send SyncCommand error: {:?}", e.to_string()))
+impl From<tokio::sync::mpsc::error::SendError<ReplicateCommand>> for Error {
+    fn from(e: tokio::sync::mpsc::error::SendError<ReplicateCommand>) -> Error {
+        Error::TokioError(format!(
+            "tokio send ReplicateCommand error: {:?}",
+            e.to_string()
+        ))
     }
 }
 

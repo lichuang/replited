@@ -129,6 +129,8 @@ impl Restore {
             }
         };
 
+        println!("latest_restore_info {:?}", latest_restore_info);
+
         // create a temp file to write snapshot
         let temp_output = format!("{}.tmp", self.options.output);
 

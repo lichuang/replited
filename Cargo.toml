@@ -7,6 +7,7 @@ description = ""
 [dependencies]
 anyhow = { version = "1.0.65" }
 async-trait = { version = "0.1.81" }
+backtrace = "0.3.73"
 chrono = { version = "0.4.31", features = ["serde"] }
 clap = { version = "4.4.2", features = ["derive"] }
 opendal = { version = "0.48.0", features = [
