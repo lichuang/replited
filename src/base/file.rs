@@ -8,12 +8,12 @@ use crate::error::Error;
 use crate::error::Result;
 
 static WAL_EXTENDION: &str = ".wal";
-static WAL_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([0-9a-f]{8})\.wal$").unwrap());
+static WAL_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([0-9]{10})\.wal$").unwrap());
 static WAL_SEGMENT_EXTENDION: &str = ".wal.lz4";
 static WAL_SEGMENT_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^([0-9a-f]{8})(?:_([0-9a-f]{8}))\.wal\.lz4$").unwrap());
+    LazyLock::new(|| Regex::new(r"^([0-9]{10})(?:_([0-9]{10}))\.wal\.lz4$").unwrap());
 static SNAPSHOT_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^([0-9a-f]{8})\.snapshot\.lz4$").unwrap());
+    LazyLock::new(|| Regex::new(r"^([0-9]{10})\.snapshot\.lz4$").unwrap());
 static SNAPSHOT_EXTENDION: &str = ".snapshot.lz4";
 
 // return base name of path
@@ -42,11 +42,11 @@ pub fn parse_wal_path(path: &str) -> Result<u64> {
         .ok_or(Error::InvalidPath(format!("invalid wal path {}", path)))?
         .as_str();
 
-    Ok(u64::from_str_radix(a, 16)?)
+    Ok(a.parse::<u64>()?)
 }
 
 pub fn format_wal_path(index: u64) -> String {
-    format!("{:08X}{}", index, WAL_EXTENDION)
+    format!("{:0>10}{}", index, WAL_EXTENDION)
 }
 
 pub fn parse_wal_segment_path(path: &str) -> Result<(u64, u64)> {
@@ -72,8 +72,8 @@ pub fn parse_wal_segment_path(path: &str) -> Result<(u64, u64)> {
         )))?
         .as_str();
 
-    let index = u64::from_str_radix(index, 16)?;
-    let offset = u64::from_str_radix(offset, 16)?;
+    let index = index.parse::<u64>()?;
+    let offset = offset.parse::<u64>()?;
 
     Ok((index, offset))
 }
@@ -95,11 +95,11 @@ pub fn parse_snapshot_path(path: &str) -> Result<u64> {
         )))?
         .as_str();
 
-    Ok(u64::from_str_radix(a, 16)?)
+    Ok(a.parse::<u64>()?)
 }
 
 pub fn format_snapshot_path(index: u64) -> String {
-    format!("{:08X}{}", index, SNAPSHOT_EXTENDION)
+    format!("{:0>10}{}", index, SNAPSHOT_EXTENDION)
 }
 
 pub fn local_generations_dir(meta_dir: &str) -> String {
@@ -170,7 +170,7 @@ pub fn walsegment_file(db: &str, generation: &str, index: u64, offset: u64) -> S
 }
 
 pub fn format_walsegment_path(index: u64, offset: u64) -> String {
-    format!("{:08X}_{:08X}{}", index, offset, WAL_SEGMENT_EXTENDION)
+    format!("{:0>10}_{:0>10}{}", index, offset, WAL_SEGMENT_EXTENDION)
 }
 
 // returns the path of the name of the current generation.
@@ -234,11 +234,11 @@ mod tests {
 
     #[test]
     fn test_parse_wal_path() -> Result<()> {
-        let path = "a/b/c/00000019.wal";
+        let path = "a/b/c/0000000019.wal";
         let index = parse_wal_path(path)?;
-        assert_eq!(index, 25);
+        assert_eq!(index, 19);
 
-        let path = "a/b/c/0000019.wal";
+        let path = "a/b/c/000000019.wal";
         let index = parse_wal_path(path);
         assert!(index.is_err());
 
@@ -250,11 +250,11 @@ mod tests {
 
     #[test]
     fn test_parse_snapshot_path() -> Result<()> {
-        let path = "a/b/c/00000019.snapshot.lz4";
+        let path = "a/b/c/0000000019.snapshot.lz4";
         let index = parse_snapshot_path(path)?;
-        assert_eq!(index, 25);
+        assert_eq!(index, 19);
 
-        let path = "a/b/c/0000019.snapshot.lz4";
+        let path = "a/b/c/000000019.snapshot.lz4";
         let index = parse_snapshot_path(path);
         assert!(index.is_err());
 
@@ -266,10 +266,10 @@ mod tests {
 
     #[test]
     fn test_parse_walsegment_path() -> Result<()> {
-        let path = "a/b/c/00000019_00000020.wal.lz4";
+        let path = "a/b/c/0000000019_0000000020.wal.lz4";
         let (index, offset) = parse_wal_segment_path(path)?;
-        assert_eq!(index, 25);
-        assert_eq!(offset, 32);
+        assert_eq!(index, 19);
+        assert_eq!(offset, 20);
 
         let path = format!("a/b/{}", format_walsegment_path(19, 20));
         let (index, offset) = parse_wal_segment_path(&path)?;
@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn test_parent_dir() -> Result<()> {
-        let path = "/b/c/00000019_00000020.wal.lz4";
+        let path = "/b/c/0000000019_0000000020.wal.lz4";
         let dir = parent_dir(path);
         assert_eq!(dir, Some("/b/c".to_string()));
 
