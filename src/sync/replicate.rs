@@ -47,6 +47,7 @@ pub struct Replicate {
     position: Arc<RwLock<WalGenerationPos>>,
     state: SyncState,
     info: DatabaseInfo,
+    config: StorageConfig,
 }
 
 impl Replicate {
@@ -62,7 +63,8 @@ impl Replicate {
             index,
             position: Arc::new(RwLock::new(WalGenerationPos::default())),
             db_notifier,
-            client: StorageClient::try_create(db, config)?,
+            client: StorageClient::try_create(db, config.clone())?,
+            config,
             state: SyncState::WaitDbChanged,
             info,
         })
@@ -246,6 +248,7 @@ impl Replicate {
         pos: WalGenerationPos,
         compressed_data: Vec<u8>,
     ) -> Result<()> {
+        info!("db {} sync snapshot {:?}", self.db, pos);
         debug_assert_eq!(self.state, SyncState::WaitSnapshot);
         if pos.offset == 0 {
             return Ok(());
@@ -276,8 +279,16 @@ impl Replicate {
             let position = self.position.read();
             position.clone()
         };
+        debug!("replicate position: {:?}", position);
         if generation != position.generation {
             let snapshots = self.client.snapshots(generation.as_str()).await?;
+            debug!(
+                "db {} replicate {} snapshot {} num: {}",
+                self.db,
+                self.config.name,
+                generation.as_str(),
+                snapshots.len()
+            );
             if snapshots.is_empty() {
                 // Create snapshot if no snapshots exist for generation.
                 self.db_notifier
@@ -290,6 +301,10 @@ impl Replicate {
             let pos = self
                 .calculate_generation_position(generation.as_str())
                 .await?;
+            debug!(
+                "db {} replicate {} calc position: {:?}",
+                self.db, self.config.name, pos
+            );
             *self.position.write() = pos;
         }
 

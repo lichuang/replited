@@ -248,7 +248,40 @@ impl Database {
 
         db.acquire_read_lock()?;
 
+        if let Err(err) = db.verify_header_match() {
+            debug!(
+                "db {} cannot determine last wal position, error: {:?}, clearing generation",
+                db.config.db, err
+            );
+
+            if let Err(e) = fs::remove_file(generation_file_path(&db.meta_dir)) {
+                error!("db {} remove generation file error: {:?}", db.config.db, e);
+            }
+        }
+
         Ok((db, db_receiver))
+    }
+
+    // verify if primary wal and last shadow wal header match
+    fn verify_header_match(&self) -> Result<()> {
+        let generation = self.current_generation()?;
+        if generation.is_empty() {
+            return Ok(());
+        }
+
+        let shadow_wal_file = self.current_shadow_wal_file(&generation)?;
+
+        let wal_header = WALHeader::read(&self.wal_file)?;
+        let shadow_wal_header = WALHeader::read(&shadow_wal_file)?;
+
+        if wal_header != shadow_wal_header {
+            return Err(Error::MismatchWalHeaderError(format!(
+                "db {} wal header mismatched",
+                self.config.db
+            )));
+        }
+
+        Ok(())
     }
 
     fn calc_wal_size(&self, n: u64) -> u64 {
