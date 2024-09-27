@@ -14,6 +14,7 @@ use crate::config::StorageConfig;
 use crate::error::Error;
 use crate::error::Result;
 use crate::storage::RestoreInfo;
+use crate::storage::RestoreWalSegments;
 use crate::storage::SnapshotInfo;
 use crate::storage::StorageClient;
 use crate::storage::WalSegmentInfo;
@@ -84,16 +85,28 @@ impl Restore {
     async fn apply_wal_frames(
         &self,
         client: &StorageClient,
-        wal_segments: &[WalSegmentInfo],
+        snapshot: &SnapshotInfo,
+        wal_segments: &RestoreWalSegments,
         db_path: &str,
     ) -> Result<()> {
         let connection = Connection::open(db_path)?;
         let wal_file_name = format!("{}-wal", db_path);
-        let sql = "PRAGMA wal_checkpoin(TRUNCATE)".to_string();
+        let sql = "PRAGMA wal_checkpoint(TRUNCATE)".to_string();
 
-        for wal_segment in wal_segments {
-            let compressed_data = client.read_wal_segment(wal_segment).await?;
-            let decompressed_data = decompressed_data(compressed_data)?;
+        for (index, offsets) in wal_segments {
+            let mut wal_decompressed_data = Vec::new();
+            for offset in offsets {
+                let wal_segment = WalSegmentInfo {
+                    generation: snapshot.generation.clone(),
+                    index: *index,
+                    offset: *offset,
+                    size: 0,
+                };
+
+                let compressed_data = client.read_wal_segment(&wal_segment).await?;
+                let data = decompressed_data(compressed_data)?;
+                wal_decompressed_data.extend_from_slice(&data);
+            }
 
             let mut wal_file = OpenOptions::new()
                 .write(true)
@@ -101,11 +114,11 @@ impl Restore {
                 .truncate(true)
                 .open(&wal_file_name)?;
 
-            wal_file.write_all(&decompressed_data)?;
+            wal_file.write_all(&wal_decompressed_data)?;
             if let Err(e) = connection.execute_batch(&sql) {
                 error!(
-                    "truncation checkpoint failed during restore {}:{}",
-                    wal_segment.index, wal_segment.offset
+                    "truncation checkpoint failed during restore {}:{:?}",
+                    index, offsets
                 );
                 return Err(e.into());
             }
@@ -129,8 +142,6 @@ impl Restore {
             }
         };
 
-        println!("latest_restore_info {:?}", latest_restore_info);
-
         // create a temp file to write snapshot
         let temp_output = format!("{}.tmp", self.options.output);
 
@@ -142,8 +153,13 @@ impl Restore {
             .await?;
 
         // apply wal frames
-        self.apply_wal_frames(&client, &latest_restore_info.wal_segments, &temp_output)
-            .await?;
+        self.apply_wal_frames(
+            &client,
+            &latest_restore_info.snapshot,
+            &latest_restore_info.wal_segments,
+            &temp_output,
+        )
+        .await?;
 
         // rename the temp file to output file
         fs::rename(&temp_output, &self.options.output)?;

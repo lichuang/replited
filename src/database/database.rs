@@ -603,7 +603,8 @@ impl Database {
 
     // return original wal file size and new wal size
     fn copy_to_shadow_wal(&self, shadow_wal: &String) -> Result<(u64, u64)> {
-        let wal_file_metadata = fs::metadata(&self.wal_file)?;
+        let wal_file_name = &self.wal_file;
+        let wal_file_metadata = fs::metadata(wal_file_name)?;
         let orig_wal_size = align_frame(self.page_size, wal_file_metadata.size());
 
         let shadow_wal_file_metadata = fs::metadata(shadow_wal)?;
@@ -629,12 +630,13 @@ impl Database {
             .open(&temp_shadow_wal_file)?;
 
         // seek on real db wal
-        let mut wal_file = File::open(&self.wal_file)?;
+        let mut wal_file = File::open(wal_file_name)?;
         wal_file.seek(SeekFrom::Start(orig_shadow_wal_size))?;
         // read last checksum of shadow wal file
         let (ck1, ck2) = read_last_checksum(shadow_wal, self.page_size)?;
         let mut offset = orig_shadow_wal_size;
         let mut last_commit_size = orig_shadow_wal_size;
+
         // Read through WAL from last position to find the page of the last
         // committed transaction.
         loop {
@@ -651,6 +653,8 @@ impl Database {
                     }
                 }
             };
+
+            // compare wal frame salts with wal header salts, break if mismatch
             if wal_frame.salt1 != wal_header.salt1 || wal_frame.salt2 != wal_header.salt2 {
                 debug!(
                     "db {} copy shadow wal frame salt mismatch at offset {}",
@@ -665,8 +669,8 @@ impl Database {
             let (ck1, ck2) = checksum(&wal_frame.data[24..], ck1, ck2, wal_header.is_big_endian);
             if ck1 != wal_frame.checksum1 || ck2 != wal_frame.checksum2 {
                 debug!(
-                    "db {} copy shadow wal checksum mismatch at offset {}",
-                    self.config.db, offset
+                    "db {} copy shadow wal checksum mismatch at offset {}, check: ({},{}),({},{})",
+                    self.config.db, offset, ck1, wal_frame.checksum1, ck2, wal_frame.checksum2,
                 );
                 break;
             }
@@ -709,7 +713,7 @@ impl Database {
             shadow_wal_file.seek(SeekFrom::Start(offset))?;
             let shadow_wal_last_frame = WALFrame::read(&mut shadow_wal_file, self.page_size)?;
 
-            let mut wal_file = OpenOptions::new().read(true).open(&self.wal_file)?;
+            let mut wal_file = OpenOptions::new().read(true).open(wal_file_name)?;
             wal_file.seek(SeekFrom::Start(offset))?;
             let wal_last_frame = WALFrame::read(&mut wal_file, self.page_size)?;
 

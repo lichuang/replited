@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use chrono::DateTime;
 use chrono::Utc;
 use log::error;
@@ -43,11 +45,14 @@ pub struct WalSegmentInfo {
     pub size: u64,
 }
 
+// restore wal_segments formats: vector<index, vector<offsets in order>>
+pub type RestoreWalSegments = Vec<(u64, Vec<u64>)>;
+
 #[derive(Debug)]
 pub struct RestoreInfo {
     pub snapshot: SnapshotInfo,
 
-    pub wal_segments: Vec<WalSegmentInfo>,
+    pub wal_segments: RestoreWalSegments,
 }
 
 impl StorageClient {
@@ -198,49 +203,62 @@ impl StorageClient {
         let index = info.index;
         let offset = info.offset;
 
-        let wal_segment_file = walsegment_file(&self.db_path, generation.as_str(), index, offset);
+        let wal_segment_file = walsegment_file(&self.db_name, generation.as_str(), index, offset);
         let bytes = self.operator.read(&wal_segment_file).await?.to_vec();
         Ok(bytes)
     }
 
-    async fn wal_segments_of(&self, snapshot: &SnapshotInfo) -> Result<Vec<WalSegmentInfo>> {
+    async fn restore_wal_segments_of(&self, snapshot: &SnapshotInfo) -> Result<RestoreWalSegments> {
         let mut wal_segments = self.wal_segments(snapshot.generation.as_str()).await?;
 
-        wal_segments.sort_by(|a, b| a.index.partial_cmp(&b.index).unwrap());
+        // sort wal segments first by index, then offset
+        wal_segments.sort_by(|a, b| {
+            let ordering = a.index.partial_cmp(&b.index).unwrap();
+            if ordering.is_eq() {
+                a.offset.partial_cmp(&b.offset).unwrap()
+            } else {
+                ordering
+            }
+        });
 
-        let mut return_wal_segments: Vec<WalSegmentInfo> = Vec::new();
+        let mut restore_wal_segments: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
 
         for wal_segment in wal_segments {
-            println!("wal_segment: {:?}, snapshot: {:?}", wal_segment, snapshot);
             if wal_segment.index < snapshot.index {
                 continue;
             }
 
-            if return_wal_segments.is_empty() {
-                if wal_segment.offset != 0 {
-                    let msg = format!(
-                        "missing initial wal segment, generation: {:?}, index: {}, offset: {}",
-                        snapshot.generation.as_str(),
-                        wal_segment.index,
-                        wal_segment.offset
-                    );
-                    error!("{}", msg);
-                    return Err(Error::InvalidWalSegmentError(msg));
+            match restore_wal_segments.get_mut(&wal_segment.index) {
+                Some(offsets) => {
+                    if *offsets.last().unwrap() >= wal_segment.offset {
+                        let msg = format!(
+                            "wal segment out of order, generation: {:?}, index: {}, offset: {}",
+                            snapshot.generation.as_str(),
+                            wal_segment.index,
+                            wal_segment.offset
+                        );
+                        error!("{}", msg);
+                        return Err(Error::InvalidWalSegmentError(msg));
+                    }
+                    offsets.push(wal_segment.offset);
                 }
-            } else if return_wal_segments.last().unwrap().offset >= wal_segment.offset {
-                let msg = format!(
-                    "wal segment out of order, generation: {:?}, index: {}, offset: {}",
-                    snapshot.generation.as_str(),
-                    wal_segment.index,
-                    wal_segment.offset
-                );
-                error!("{}", msg);
-                return Err(Error::InvalidWalSegmentError(msg));
+                None => {
+                    if wal_segment.offset != 0 {
+                        let msg = format!(
+                            "missing initial wal segment, generation: {:?}, index: {}, offset: {}",
+                            snapshot.generation.as_str(),
+                            wal_segment.index,
+                            wal_segment.offset
+                        );
+                        error!("{}", msg);
+                        return Err(Error::InvalidWalSegmentError(msg));
+                    }
+                    restore_wal_segments.insert(wal_segment.index, vec![wal_segment.offset]);
+                }
             }
-
-            return_wal_segments.push(wal_segment);
         }
-        Ok(return_wal_segments)
+
+        Ok(restore_wal_segments.into_iter().collect())
     }
 
     pub async fn restore_info(&self) -> Result<Option<RestoreInfo>> {
@@ -283,7 +301,7 @@ impl StorageClient {
             };
 
             // return only if wal segments in this snapshot is valid.
-            if let Ok(wal_segments) = self.wal_segments_of(&snapshot).await {
+            if let Ok(wal_segments) = self.restore_wal_segments_of(&snapshot).await {
                 return Ok(Some(RestoreInfo {
                     snapshot,
                     wal_segments,
