@@ -8,6 +8,7 @@ use crate::error::Result;
 pub const WAL_FRAME_HEADER_SIZE: u64 = 24;
 pub const WAL_HEADER_SIZE: u64 = 32;
 pub const WAL_HEADER_CHECKSUM_OFFSET: u64 = 24;
+pub const WAL_FRAME_HEADER_CHECKSUM_OFFSET: u64 = 16;
 
 pub const WAL_HEADER_BIG_ENDIAN_MAGIC: [u8; 4] = [0x37, 0x7f, 0x06, 0x83];
 pub const WAL_HEADER_LITTLE_ENDIAN_MAGIC: [u8; 4] = [0x37, 0x7f, 0x06, 0x82];
@@ -53,7 +54,7 @@ pub fn read_last_checksum(file_name: &str, page_size: u64) -> Result<(u32, u32)>
     let fsize = metadata.size();
     let offset = if fsize > WAL_HEADER_SIZE {
         let sz = align_frame(page_size, fsize);
-        sz - page_size - WAL_FRAME_HEADER_SIZE + WAL_HEADER_CHECKSUM_OFFSET
+        sz - page_size - WAL_FRAME_HEADER_SIZE + WAL_FRAME_HEADER_CHECKSUM_OFFSET
     } else {
         WAL_HEADER_CHECKSUM_OFFSET
     };
