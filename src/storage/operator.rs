@@ -100,6 +100,9 @@ fn init_s3_operator(cfg: &StorageS3Config) -> Result<impl Builder> {
         // Root.
         .root(&cfg.root);
 
+    // Disable credential loader
+    builder = builder.disable_config_load().disable_ec2_metadata();
+
     builder = builder.http_client(new_storage_http_client()?);
 
     Ok(builder)

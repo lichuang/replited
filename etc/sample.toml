@@ -3,25 +3,26 @@ level = "Debug"
 dir = "/var/log/replited/"
 
 [[database]]
-db = "/Users/codedump/local/sqlite/test.db"
+db = "/var/sqlite/test.db"
 
+# each database has at least one replicate backend
 [[database.replicate]]
 name = "fs"
 params.type = "Fs"
-params.root = "/Users/codedump/local/replited"
+params.root = "/var/replited"
+
+[[database.replicate]]
+name = "S3"
+params.type = "Fs"
+params.endpoint_url = "http://127.0.0.1:9900"
+params.bucket = "sqlite"
+params.region = ""
+params.root = ""
+params.access_key_id = "minioadmin"
+params.secret_access_key = "minioadmin"
+
+# can add more than one database config
+#[[database]]
+#db = "/var/sqlite/test2.db"
 
 #[[database.replicate]]
-#allow_insecure = true
-#params.type = "S3"
-#params.endpoint_url = "http://127.0.0.1:9900"
-#params.bucket = "replicate-bucket-2"
-#params.region = ""
-#params.security_token = ""
-#params.master_key = ""
-#params.root = ""
-#params.disable_credential_loader = false
-#params.enable_virtual_host_style = false
-#params.role_arn = ""
-#params.external_id = ""
-#params.access_key_id = "minioadmin"
-#params.secret_access_key = "minioadmin"

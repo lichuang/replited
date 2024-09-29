@@ -71,6 +71,7 @@ impl Replicate {
     }
 
     pub fn start(s: Replicate, rx: Receiver<ReplicateCommand>) -> Result<JoinHandle<()>> {
+        info!("start replicate {:?}", s.config);
         let s = s.clone();
         let handle = tokio::spawn(async move {
             let _ = Replicate::main(s, rx).await;

@@ -10,22 +10,11 @@ async-trait = { version = "0.1.81" }
 backtrace = "0.3.73"
 chrono = { version = "0.4.31", features = ["serde"] }
 clap = { version = "4.4.2", features = ["derive"] }
-opendal = { version = "0.48.0", features = [
+opendal = { version = "0.50.0", features = [
   "layers-fastrace",
   "layers-async-backtrace",
   "services-s3",
   "services-fs",
-  "services-gcs",
-  "services-cos",
-  "services-obs",
-  "services-oss",
-  "services-azblob",
-  "services-azdls",
-  "services-ipfs",
-  "services-http",
-  "services-moka",
-  "services-webhdfs",
-  "services-huggingface",
 ] }
 log = "0.4.17"
 log4rs = "1.2.0"
