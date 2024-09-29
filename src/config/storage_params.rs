@@ -64,27 +64,8 @@ pub struct StorageS3Config {
     pub bucket: String,
     pub access_key_id: String,
     pub secret_access_key: String,
-    /// Temporary security token used for authentications
-    ///
-    /// This recommended to use since users don't need to store their permanent credentials in their
-    /// scripts or worksheets.
-    ///
-    /// refer to [documentations](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_temp.html) for details.
-    pub security_token: String,
-    pub master_key: String,
+
     pub root: String,
-    /// This flag is used internally to control whether databend load
-    /// credentials from environment like env, profile and web token.
-    pub disable_credential_loader: bool,
-    /// Enable this flag to send API in virtual host style.
-    ///
-    /// - Virtual Host Style: `https://bucket.s3.amazonaws.com`
-    /// - Path Style: `https://s3.amazonaws.com/bucket`
-    pub enable_virtual_host_style: bool,
-    /// The RoleArn that used for AssumeRole.
-    pub role_arn: String,
-    /// The ExternalId that used for AssumeRole.
-    pub external_id: String,
 }
 
 impl Default for StorageS3Config {
@@ -95,13 +76,7 @@ impl Default for StorageS3Config {
             bucket: "".to_string(),
             access_key_id: "".to_string(),
             secret_access_key: "".to_string(),
-            security_token: "".to_string(),
-            master_key: "".to_string(),
             root: "".to_string(),
-            disable_credential_loader: false,
-            enable_virtual_host_style: false,
-            role_arn: "".to_string(),
-            external_id: "".to_string(),
         }
     }
 }
@@ -113,17 +88,11 @@ impl Debug for StorageS3Config {
             .field("region", &self.region)
             .field("bucket", &self.bucket)
             .field("root", &self.root)
-            .field("disable_credential_loader", &self.disable_credential_loader)
-            .field("enable_virtual_host_style", &self.enable_virtual_host_style)
-            .field("role_arn", &self.role_arn)
-            .field("external_id", &self.external_id)
             .field("access_key_id", &mask_string(&self.access_key_id, 3))
             .field(
                 "secret_access_key",
                 &mask_string(&self.secret_access_key, 3),
             )
-            .field("security_token", &mask_string(&self.security_token, 3))
-            .field("master_key", &mask_string(&self.master_key, 3))
             .finish()
     }
 }

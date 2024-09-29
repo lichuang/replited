@@ -42,3 +42,14 @@ replited use `toml` as its config file format, the structure of config is:
 | :---- | ---- |
 | name | "fs" |
 | params | root directory of file system backend |
+
+#### S3 Params
+| item  |  value    |
+| :---- | ---- |
+| name | "s3" |
+| params.endpoint_url | Endpoint of this backend, must be full uri, use "https://s3.amazonaws.com" by default. |
+| params.region | Region represent the signing region of this endpoint.If `region` is empty, use env value `AWS_REGION` if it is set, or else use `us-east-1` by default. |
+| params.bucket | Bucket name of this backend. |
+| params.access_key_id | access_key_id of this backend. |
+| params.secret_access_key | secret_access_key of this backend. |
+| params.root | root of this backend. |

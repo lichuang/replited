@@ -95,23 +95,10 @@ fn init_s3_operator(cfg: &StorageS3Config) -> Result<impl Builder> {
     builder = builder
         .access_key_id(&cfg.access_key_id)
         .secret_access_key(&cfg.secret_access_key)
-        .session_token(&cfg.security_token)
-        .role_arn(&cfg.role_arn)
-        .external_id(&cfg.external_id)
         // It's safe to allow anonymous since opendal will perform the check first.
         .allow_anonymous()
         // Root.
         .root(&cfg.root);
-
-    // Disable credential loader
-    if cfg.disable_credential_loader {
-        builder = builder.disable_config_load().disable_ec2_metadata();
-    }
-
-    // Enable virtual host style
-    if cfg.enable_virtual_host_style {
-        builder = builder.enable_virtual_host_style();
-    }
 
     builder = builder.http_client(new_storage_http_client()?);
 
