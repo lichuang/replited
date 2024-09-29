@@ -5,8 +5,8 @@
 
 <!-- MarkdownTOC autolink="true" -->
 - [Introduction](#introduction)
-- [Support Backend](#supportbackend)
-- [Quick Start](#quickstart)
+- [Support Backend](#support-backend)
+- [Quick Start](#quick-start)
 - [Config](#config)
 - [Sub commands](#sub-commands)
 	- [Replicate](#replicate)
