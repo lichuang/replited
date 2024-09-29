@@ -5,48 +5,57 @@
 
 <!-- MarkdownTOC autolink="true" -->
 - [Introduction](#introduction)
-- [Getting started](#getting-started)
-  - [Sub commands](#sub-commands)
-    - [Replicate](#replicate)
-    - [Restore](#restore)
-  - [Config](#config)
-<!-- /MarkdownTOC -->
+- [Support Backend](#supportbackend)
+- [Quick Start](#quickstart)
+- [Config](#config)
+- [Sub commands](#sub-commands)
+	- [Replicate](#replicate)
+  - [Restore](#restore)
+  <!-- /MarkdownTOC -->
 
 ## Introduction
 
 inspired by [Litestream](https://litestream.io/), with the power of [Rust](https://www.rust-lang.org/) and [OpenDAL](https://opendal.apache.org/), replited target to replicate sqlite to everywhere(file system,s3,ftp,google drive,dropbox,etc).
 
-## Getting started
-`replited` support sub command:
-* `repicate`: replicate db to replicates;
-* `restore`: restore a db from replicates;
+## Support Backend
+
+| Type                       | Services                                                     |
+| -------------------------- | ------------------------------------------------------------ |
+| Standard Storage Protocols |                                      |
+| Object Storage Services    | [s3] |
+| File Storage Services      | fs                                                           |
+
+[s3]: https://aws.amazon.com/s3/
 
 
+
+## Quick Start
+
+Start a daemon to replicate sqlite:
+
+```shell
+replited replicate --config {config file}
 ```
-replited -h
-Replicate sqlite to everywhere
 
-Usage: replited [OPTIONS] <COMMAND>
+Restore sqlite from backend:
 
-Commands:
-  replicate
-  restore
-  help       Print this message or the help of the given subcommand(s)
-
-Options:
-  -c, --config <CONFIG>  [default: /etc/replited.toml]
-  -h, --help             Print help
-  -V, --version          Print version
+```shell
+replited restore --config {config file} --db {db in cofig file} --output {output sqlite db file path}
 ```
- 
-### Sub commands
-#### Replicate
+
+## Config
+
+See [config.md](./config.md)
+
+
+## Sub commands
+### Replicate
 `repicate` sub command will run a background process to replicate db to replicates in config periodically, example:
 ```
 replited  --config ./etc/sample.toml  replicate
 ```
 
-#### Restore
+### Restore
 `restore` sub command will restore db from replicates in config, example:
 ```
 replited  --config ./etc/sample.toml restore --db /Users/codedump/local/sqlite/test.db --output ./test.db
@@ -56,9 +65,7 @@ command options:
 * `db`: which db will be restore from config
 * `output`: which path will restored db saved
 
-## Config
-
 ## Stargazers over time
 [![Stargazers over time](https://starchart.cc/lichuang/replited.svg?variant=adaptive)](https://starchart.cc/lichuang/replited)
 
-                    
+​                    
