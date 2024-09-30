@@ -32,6 +32,8 @@ impl Command for Restore {
             }
         }
 
+        println!("cannot find db {} in config file", self.options.db);
+
         Ok(())
     }
 }

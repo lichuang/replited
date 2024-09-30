@@ -120,6 +120,9 @@ impl StorageClient {
         let mut snapshots = vec![];
         for entry in entries {
             let metadata = entry.metadata();
+            if !metadata.is_file() {
+                continue;
+            }
             let index = parse_snapshot_path(entry.name())?;
             snapshots.push(SnapshotInfo {
                 generation: generation.clone(),
@@ -186,6 +189,10 @@ impl StorageClient {
 
         let mut wal_segments = vec![];
         for entry in entries {
+            let metadata = entry.metadata();
+            if !metadata.is_file() {
+                continue;
+            }
             let (index, offset) = parse_wal_segment_path(entry.name())?;
             wal_segments.push(WalSegmentInfo {
                 generation: generation.clone(),

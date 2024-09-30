@@ -164,6 +164,11 @@ impl Restore {
         // rename the temp file to output file
         fs::rename(&temp_output, &self.options.output)?;
 
+        println!(
+            "restore db {} to {} success",
+            self.options.db, self.options.output
+        );
+
         Ok(())
     }
 }

@@ -263,7 +263,10 @@ impl Replicate {
     }
 
     async fn sync(&mut self, pos: WalGenerationPos) -> Result<()> {
-        info!("replica sync pos: {:?}\n", pos);
+        info!(
+            "db {} replicate {} replica sync pos: {:?}\n",
+            self.db, self.config.name, pos
+        );
 
         if self.state == ReplicateState::WaitSnapshot {
             return Ok(());
@@ -280,7 +283,10 @@ impl Replicate {
             let position = self.position.read();
             position.clone()
         };
-        debug!("replicate position: {:?}", position);
+        debug!(
+            "db {} replicate {} replicate position: {:?}",
+            self.db, self.config.name, position
+        );
         if generation != position.generation {
             let snapshots = self.client.snapshots(generation.as_str()).await?;
             debug!(
