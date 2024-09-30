@@ -16,7 +16,8 @@ replited use `toml` as its config file format, the structure of config is:
 * One or more database configs:
   * sqlite database file path;
   * one or more database replicate backend.
-  
+
+See config sample in [sample.toml](./etc/sample.toml)
 
 ## Log Config
 
