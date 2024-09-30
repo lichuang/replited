@@ -3,7 +3,6 @@ mod file;
 mod generation;
 mod numerical;
 mod string;
-mod temp_file;
 
 pub use compress::compress_buffer;
 pub use compress::compress_file;
@@ -26,4 +25,3 @@ pub use file::walsegments_dir;
 pub use generation::Generation;
 pub use numerical::is_power_of_two;
 pub use string::mask_string;
-pub use temp_file::TempFile;

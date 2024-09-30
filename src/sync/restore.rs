@@ -5,6 +5,7 @@ use std::io::Write;
 use log::debug;
 use log::error;
 use rusqlite::Connection;
+use tempfile::NamedTempFile;
 
 use crate::base::decompressed_data;
 use crate::base::parent_dir;
@@ -143,13 +144,14 @@ impl Restore {
         };
 
         // create a temp file to write snapshot
-        let temp_output = format!("{}.tmp", self.options.output);
+        let temp_file = NamedTempFile::new()?;
+        let temp_file_name = temp_file.path().to_str().unwrap().to_string();
 
-        let dir = parent_dir(&temp_output).unwrap();
+        let dir = parent_dir(&temp_file_name).unwrap();
         fs::create_dir_all(&dir)?;
 
         // restore snapshot
-        self.restore_snapshot(&client, &latest_restore_info.snapshot, &temp_output)
+        self.restore_snapshot(&client, &latest_restore_info.snapshot, &temp_file_name)
             .await?;
 
         // apply wal frames
@@ -157,12 +159,12 @@ impl Restore {
             &client,
             &latest_restore_info.snapshot,
             &latest_restore_info.wal_segments,
-            &temp_output,
+            &temp_file_name,
         )
         .await?;
 
         // rename the temp file to output file
-        fs::rename(&temp_output, &self.options.output)?;
+        fs::rename(&temp_file_name, &self.options.output)?;
 
         println!(
             "restore db {} to {} success",

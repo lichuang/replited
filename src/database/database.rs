@@ -17,6 +17,8 @@ use log::error;
 use log::info;
 use rusqlite::Connection;
 use rusqlite::DropBehavior;
+use tempfile::tempfile;
+use tempfile::NamedTempFile;
 use tokio::select;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Receiver;
@@ -34,7 +36,6 @@ use crate::base::path_base;
 use crate::base::shadow_wal_dir;
 use crate::base::shadow_wal_file;
 use crate::base::Generation;
-use crate::base::TempFile;
 use crate::config::DbConfig;
 use crate::error::Error;
 use crate::error::Result;
@@ -437,7 +438,12 @@ impl Database {
     // generation name.
     async fn create_generation(&mut self) -> Result<Generation> {
         let generation = Generation::new();
-        fs::write(generation_file_path(&self.meta_dir), generation.as_str())?;
+
+        // create a temp file to write new generation
+        let temp_file = NamedTempFile::new()?;
+        let temp_file_name = temp_file.path().to_str().unwrap().to_string();
+
+        fs::write(&temp_file_name, generation.as_str())?;
 
         // create new directory.
         let dir = generation_dir(&self.meta_dir, generation.as_str());
@@ -445,6 +451,10 @@ impl Database {
 
         // init first(index 0) shadow wal file
         self.init_shadow_wal_file(&self.shadow_wal_file(generation.as_str(), 0))?;
+
+        // rename the temp file to generation file
+        let generation_file = generation_file_path(&self.meta_dir);
+        fs::rename(&temp_file_name, &generation_file)?;
 
         // Remove old generations.
         self.clean()?;
@@ -556,7 +566,6 @@ impl Database {
                 .to_str()
                 .unwrap()
                 .to_string();
-            println!("path: {}", path);
             fs::remove_file(&path)?;
         }
 
@@ -617,17 +626,8 @@ impl Database {
         // read shadow wal header
         let wal_header = WALHeader::read(shadow_wal)?;
 
-        // copy wal frames into temp shadow wal file
-        let temp_shadow_wal_file = format!("{}.tmp", shadow_wal);
-        let _temp_file = TempFile::try_create(temp_shadow_wal_file.clone())?;
-
-        // create a temp file to copy wal frames, truncate if exists
-        let mut temp_file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&temp_shadow_wal_file)?;
+        // create a temp file to copy wal frames
+        let mut temp_file = tempfile()?;
 
         // seek on real db wal
         let mut wal_file = File::open(wal_file_name)?;
