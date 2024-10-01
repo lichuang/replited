@@ -22,9 +22,10 @@ inspired by [Litestream](https://litestream.io/), with the power of [Rust](https
 | Type                       | Services                                                     |
 | -------------------------- | ------------------------------------------------------------ |
 | Standard Storage Protocols |                                      |
-| Object Storage Services    | [s3] |
+| Object Storage Services    | [gcs] [s3] |
 | File Storage Services      | fs                                                           |
 
+[gcs]: https://cloud.google.com/storage
 [s3]: https://aws.amazon.com/s3/
 
 
