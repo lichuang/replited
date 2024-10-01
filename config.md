@@ -3,8 +3,9 @@
 - [Log config](#log-config)
 - [Database config](#database-config)
 	- [Replicate Config](#replicate-config)
+ 		- [Gcs Params](#gcs-params) 
 		- [File System Params](#file-system-params)
-  		- [Gcs Params](#gcs-params)
+  		- [Ftp](#ftp-params) 
 		- [S3 Params](#s3-params)
   
   <!-- /MarkdownTOC -->
@@ -39,12 +40,6 @@ See config sample in [sample.toml](./etc/sample.toml)
 | name | replicate backend config name, cannot duplicate |
 | params | params of backend, see below |
 
-#### File System Params
-| item  |  value    |
-| :---- | ---- |
-| params.type | "Fs" |
-| params.root | root directory of file system backend |
-
 #### Gcs Params
 | item  |  value    |
 | :---- | ---- |
@@ -53,6 +48,22 @@ See config sample in [sample.toml](./etc/sample.toml)
 | params.root | Root URI of gcs operations. |
 | params.bucket | Bucket name of this backend. |
 | params.credential | Credentials string for GCS service OAuth2 authentication. |
+
+#### File System Params
+| item  |  value    |
+| :---- | ---- |
+| params.type | "Fs" |
+| params.root | root directory of file system backend |
+
+#### Ftp Params
+| item  |  value    |
+| :---- | ---- |
+| params.type | "Ftp" |
+| params.endpoint | Endpoint of this ftp, use "ftps://127.0.0.1" by default. |
+| params.root | root directory of file system backend, use "/" by default. |
+| params.user | user of ftp backend. |
+| params.password | password of ftp backend. |
+
 
 #### S3 Params
 | item  |  value    |
