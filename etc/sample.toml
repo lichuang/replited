@@ -8,6 +8,24 @@ db = "/var/sqlite/test.db"
 # each database has at least one replicate backend, 
 # each replication config in one db MUST has different name
 
+# sample of gcs replicate config
+[[database.replicate]]
+name = "name of ccs"
+params.type = "Gcs"
+params.endpoint = "https://storage.googleapis.com"
+params.bucket = "sqlite"
+params.root = ""
+params.credential = "xxx"
+
+# sample of ftp replicate config
+[[database.replicate]]
+name = "name of ftp"
+params.type = "Ftp"
+params.endpoint = "https://storage.googleapis.com"
+params.root = "/var/replited"
+params.username = "username"
+params.password = "password"
+
 # sample of file system replicate config
 [[database.replicate]]
 name = "name of fs"
@@ -25,14 +43,7 @@ params.root = ""
 params.access_key_id = "minioadmin"
 params.secret_access_key = "minioadmin"
 
-# sample of gcs replicate config
-[[database.replicate]]
-name = "name of ccs"
-params.type = "Gcs"
-params.endpoint = "https://storage.googleapis.com"
-params.bucket = "sqlite"
-params.root = ""
-params.credential = "xxx"
+
 
 
 # can add more than one database config
