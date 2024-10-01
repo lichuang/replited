@@ -21,7 +21,7 @@ inspired by [Litestream](https://litestream.io/), with the power of [Rust](https
 
 | Type                       | Services                                                     |
 | -------------------------- | ------------------------------------------------------------ |
-| Standard Storage Protocols |                                      |
+| Standard Storage Protocols | ftp                                    |
 | Object Storage Services    | [gcs] [s3] |
 | File Storage Services      | fs                                                           |
 
