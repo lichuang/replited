@@ -11,6 +11,7 @@ use opendal::Operator;
 use reqwest_hickory_resolver::HickoryResolver;
 
 use crate::config::StorageFsConfig;
+use crate::config::StorageGcsConfig;
 use crate::config::StorageParams;
 use crate::config::StorageS3Config;
 use crate::error::Result;
@@ -23,6 +24,7 @@ pub fn init_operator(cfg: &StorageParams) -> Result<Operator> {
     let op = match cfg {
         StorageParams::Fs(cfg) => build_operator(init_fs_operator(cfg)?)?,
         StorageParams::S3(cfg) => build_operator(init_s3_operator(cfg)?)?,
+        StorageParams::Gcs(cfg) => build_operator(init_gcs_operator(cfg)?)?,
     };
 
     Ok(op)
@@ -117,6 +119,18 @@ fn init_fs_operator(cfg: &StorageFsConfig) -> Result<impl Builder> {
         path = env::current_dir().unwrap().join(path).display().to_string();
     }
     builder = builder.root(&path);
+
+    Ok(builder)
+}
+
+/// init_gcs_operator will init a opendal gcs operator.
+fn init_gcs_operator(cfg: &StorageGcsConfig) -> Result<impl Builder> {
+    let builder = services::Gcs::default()
+        .endpoint(&cfg.endpoint_url)
+        .bucket(&cfg.bucket)
+        .root(&cfg.root)
+        .credential(&cfg.credential)
+        .http_client(new_storage_http_client()?);
 
     Ok(builder)
 }

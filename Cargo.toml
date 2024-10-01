@@ -15,6 +15,7 @@ opendal = { version = "0.50.0", features = [
   "layers-async-backtrace",
   "services-s3",
   "services-fs",
+  "services-gcs",
 ] }
 log = "0.4.17"
 log4rs = "1.2.0"

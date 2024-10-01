@@ -524,7 +524,7 @@ impl Database {
         for sync in &self.syncs {
             // let sync = sync.read().await;
             let mut position = sync.position();
-            if position.generation.as_str() != &generation {
+            if position.generation.as_str() != generation {
                 position = WalGenerationPos::default();
             }
             match min {

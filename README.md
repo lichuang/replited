@@ -40,7 +40,7 @@ replited replicate --config {config file}
 Restore sqlite from backend:
 
 ```shell
-replited restore --config {config file} --db {db in cofig file} --output {output sqlite db file path}
+replited restore --config {config file} --db {db in config file} --output {output sqlite db file path}
 ```
 
 ## Config

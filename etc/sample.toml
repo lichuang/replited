@@ -5,14 +5,18 @@ dir = "/var/log/replited/"
 [[database]]
 db = "/var/sqlite/test.db"
 
-# each database has at least one replicate backend
+# each database has at least one replicate backend, 
+# each replication config in one db MUST has different name
+
+# sample of file system replicate config
 [[database.replicate]]
-name = "fs"
+name = "name of fs"
 params.type = "Fs"
 params.root = "/var/replited"
 
+# sample of s3 replicate config
 [[database.replicate]]
-name = "S3"
+name = "name of s3"
 params.type = "Fs"
 params.endpoint_url = "http://127.0.0.1:9900"
 params.bucket = "sqlite"
@@ -20,6 +24,16 @@ params.region = ""
 params.root = ""
 params.access_key_id = "minioadmin"
 params.secret_access_key = "minioadmin"
+
+# sample of gcs replicate config
+[[database.replicate]]
+name = "name of ccs"
+params.type = "Gcs"
+params.endpoint_url = "https://storage.googleapis.com"
+params.bucket = "sqlite"
+params.root = ""
+params.credential = "xxx"
+
 
 # can add more than one database config
 #[[database]]
