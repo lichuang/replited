@@ -11,6 +11,7 @@ use opendal::Operator;
 use reqwest_hickory_resolver::HickoryResolver;
 
 use crate::config::StorageFsConfig;
+use crate::config::StorageFtpConfig;
 use crate::config::StorageGcsConfig;
 use crate::config::StorageParams;
 use crate::config::StorageS3Config;
@@ -23,6 +24,7 @@ static GLOBAL_HICKORY_RESOLVER: LazyLock<Arc<HickoryResolver>> =
 pub fn init_operator(cfg: &StorageParams) -> Result<Operator> {
     let op = match cfg {
         StorageParams::Fs(cfg) => build_operator(init_fs_operator(cfg)?)?,
+        StorageParams::Ftp(cfg) => build_operator(init_ftp_operator(cfg)?)?,
         StorageParams::S3(cfg) => build_operator(init_s3_operator(cfg)?)?,
         StorageParams::Gcs(cfg) => build_operator(init_gcs_operator(cfg)?)?,
     };
@@ -34,6 +36,42 @@ pub fn build_operator<B: Builder>(builder: B) -> Result<Operator> {
     let op = Operator::new(builder)?;
 
     Ok(op.finish())
+}
+
+/// init_gcs_operator will init a opendal gcs operator.
+fn init_gcs_operator(cfg: &StorageGcsConfig) -> Result<impl Builder> {
+    let builder = services::Gcs::default()
+        .endpoint(&cfg.endpoint)
+        .bucket(&cfg.bucket)
+        .root(&cfg.root)
+        .credential(&cfg.credential)
+        .http_client(new_storage_http_client()?);
+
+    Ok(builder)
+}
+
+/// init_fs_operator will init a opendal fs operator.
+fn init_fs_operator(cfg: &StorageFsConfig) -> Result<impl Builder> {
+    let mut builder = services::Fs::default();
+
+    let mut path = cfg.root.clone();
+    if !path.starts_with('/') {
+        path = env::current_dir().unwrap().join(path).display().to_string();
+    }
+    builder = builder.root(&path);
+
+    Ok(builder)
+}
+
+/// init_ftp_operator will init a opendal ftp operator.
+fn init_ftp_operator(cfg: &StorageFtpConfig) -> Result<impl Builder> {
+    let builder = services::Ftp::default()
+        .endpoint(&cfg.endpoint)
+        .root(&cfg.root)
+        .user(&cfg.username)
+        .password(&cfg.password);
+
+    Ok(builder)
 }
 
 /// Create a new http client for storage.
@@ -75,7 +113,7 @@ fn new_storage_http_client() -> Result<HttpClient> {
 fn init_s3_operator(cfg: &StorageS3Config) -> Result<impl Builder> {
     let mut builder = services::S3::default()
         // Endpoint.
-        .endpoint(&cfg.endpoint_url)
+        .endpoint(&cfg.endpoint)
         // Bucket.
         .bucket(&cfg.bucket);
 
@@ -106,31 +144,6 @@ fn init_s3_operator(cfg: &StorageS3Config) -> Result<impl Builder> {
     builder = builder.disable_config_load().disable_ec2_metadata();
 
     builder = builder.http_client(new_storage_http_client()?);
-
-    Ok(builder)
-}
-
-/// init_fs_operator will init a opendal fs operator.
-fn init_fs_operator(cfg: &StorageFsConfig) -> Result<impl Builder> {
-    let mut builder = services::Fs::default();
-
-    let mut path = cfg.root.clone();
-    if !path.starts_with('/') {
-        path = env::current_dir().unwrap().join(path).display().to_string();
-    }
-    builder = builder.root(&path);
-
-    Ok(builder)
-}
-
-/// init_gcs_operator will init a opendal gcs operator.
-fn init_gcs_operator(cfg: &StorageGcsConfig) -> Result<impl Builder> {
-    let builder = services::Gcs::default()
-        .endpoint(&cfg.endpoint_url)
-        .bucket(&cfg.bucket)
-        .root(&cfg.root)
-        .credential(&cfg.credential)
-        .http_client(new_storage_http_client()?);
 
     Ok(builder)
 }

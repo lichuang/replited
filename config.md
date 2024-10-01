@@ -49,7 +49,7 @@ See config sample in [sample.toml](./etc/sample.toml)
 | item  |  value    |
 | :---- | ---- |
 | params.type | "Gcs" |
-| params.endpoint_url | Endpoint of this backend, must be full uri, use "https://storage.googleapis.com" by default. |
+| params.endpoint | Endpoint of this backend, must be full uri, use "https://storage.googleapis.com" by default. |
 | params.root | Root URI of gcs operations. |
 | params.bucket | Bucket name of this backend. |
 | params.credential | Credentials string for GCS service OAuth2 authentication. |
@@ -58,7 +58,7 @@ See config sample in [sample.toml](./etc/sample.toml)
 | item  |  value    |
 | :---- | ---- |
 | params.type | "S3" |
-| params.endpoint_url | Endpoint of this backend, must be full uri, use "https://s3.amazonaws.com" by default. |
+| params.endpoint | Endpoint of this backend, must be full uri, use "https://s3.amazonaws.com" by default. |
 | params.region | Region represent the signing region of this endpoint.If `region` is empty, use env value `AWS_REGION` if it is set, or else use `us-east-1` by default. |
 | params.bucket | Bucket name of this backend. |
 | params.access_key_id | access_key_id of this backend. |

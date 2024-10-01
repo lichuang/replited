@@ -12,14 +12,16 @@ use crate::base::mask_string;
 #[serde(tag = "type")]
 pub enum StorageParams {
     Fs(Box<StorageFsConfig>),
-    S3(Box<StorageS3Config>),
+    Ftp(Box<StorageFtpConfig>),
     Gcs(Box<StorageGcsConfig>),
+    S3(Box<StorageS3Config>),
 }
 
 impl StorageParams {
     pub fn root(&self) -> String {
         match self {
             StorageParams::Fs(s) => s.root.clone(),
+            StorageParams::Ftp(s) => s.root.clone(),
             StorageParams::S3(s) => s.root.clone(),
             StorageParams::Gcs(s) => s.root.clone(),
         }
@@ -31,19 +33,87 @@ impl Display for StorageParams {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             StorageParams::Fs(v) => write!(f, "fs | root={}", v.root),
+            StorageParams::Ftp(v) => {
+                write!(f, "ftp | root={},endpoint={}", v.root, v.endpoint)
+            }
             StorageParams::S3(v) => {
                 write!(
                     f,
                     "s3 | bucket={},root={},endpoint={}",
-                    v.bucket, v.root, v.endpoint_url
+                    v.bucket, v.root, v.endpoint
                 )
             }
             StorageParams::Gcs(v) => write!(
                 f,
                 "gcs | bucket={},root={},endpoint={}",
-                v.bucket, v.root, v.endpoint_url
+                v.bucket, v.root, v.endpoint
             ),
         }
+    }
+}
+
+/// Config for storage backend GCS.
+pub static STORAGE_GCS_DEFAULT_ENDPOINT: &str = "https://storage.googleapis.com";
+
+#[derive(Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct StorageGcsConfig {
+    pub endpoint: String,
+    pub bucket: String,
+    pub root: String,
+    pub credential: String,
+}
+
+impl Default for StorageGcsConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: STORAGE_GCS_DEFAULT_ENDPOINT.to_string(),
+            bucket: String::new(),
+            root: String::new(),
+            credential: String::new(),
+        }
+    }
+}
+
+impl Debug for StorageGcsConfig {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        f.debug_struct("StorageGcsConfig")
+            .field("endpoint", &self.endpoint)
+            .field("bucket", &self.bucket)
+            .field("root", &self.root)
+            .field("credential", &mask_string(&self.credential, 3))
+            .finish()
+    }
+}
+
+/// Config for FTP and FTPS data source
+pub const STORAGE_FTP_DEFAULT_ENDPOINT: &str = "ftps://127.0.0.1";
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageFtpConfig {
+    pub endpoint: String,
+    pub root: String,
+    pub username: String,
+    pub password: String,
+}
+
+impl Default for StorageFtpConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: STORAGE_FTP_DEFAULT_ENDPOINT.to_string(),
+            username: "".to_string(),
+            password: "".to_string(),
+            root: "/".to_string(),
+        }
+    }
+}
+
+impl Debug for StorageFtpConfig {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        f.debug_struct("StorageFtpConfig")
+            .field("endpoint", &self.endpoint)
+            .field("root", &self.root)
+            .field("username", &self.username)
+            .field("password", &mask_string(self.password.as_str(), 3))
+            .finish()
     }
 }
 
@@ -66,7 +136,7 @@ pub static STORAGE_S3_DEFAULT_ENDPOINT: &str = "https://s3.amazonaws.com";
 /// Config for storage backend s3.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StorageS3Config {
-    pub endpoint_url: String,
+    pub endpoint: String,
     pub region: String,
     pub bucket: String,
     pub access_key_id: String,
@@ -78,7 +148,7 @@ pub struct StorageS3Config {
 impl Default for StorageS3Config {
     fn default() -> Self {
         StorageS3Config {
-            endpoint_url: STORAGE_S3_DEFAULT_ENDPOINT.to_string(),
+            endpoint: STORAGE_S3_DEFAULT_ENDPOINT.to_string(),
             region: "".to_string(),
             bucket: "".to_string(),
             access_key_id: "".to_string(),
@@ -91,7 +161,7 @@ impl Default for StorageS3Config {
 impl Debug for StorageS3Config {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         f.debug_struct("StorageS3Config")
-            .field("endpoint_url", &self.endpoint_url)
+            .field("endpoint", &self.endpoint)
             .field("region", &self.region)
             .field("bucket", &self.bucket)
             .field("root", &self.root)
@@ -100,39 +170,6 @@ impl Debug for StorageS3Config {
                 "secret_access_key",
                 &mask_string(&self.secret_access_key, 3),
             )
-            .finish()
-    }
-}
-
-pub static STORAGE_GCS_DEFAULT_ENDPOINT: &str = "https://storage.googleapis.com";
-
-/// Config for storage backend GCS.
-#[derive(Clone, PartialEq, Eq, Deserialize, Serialize)]
-pub struct StorageGcsConfig {
-    pub endpoint_url: String,
-    pub bucket: String,
-    pub root: String,
-    pub credential: String,
-}
-
-impl Default for StorageGcsConfig {
-    fn default() -> Self {
-        Self {
-            endpoint_url: STORAGE_GCS_DEFAULT_ENDPOINT.to_string(),
-            bucket: String::new(),
-            root: String::new(),
-            credential: String::new(),
-        }
-    }
-}
-
-impl Debug for StorageGcsConfig {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        f.debug_struct("StorageGcsConfig")
-            .field("endpoint", &self.endpoint_url)
-            .field("bucket", &self.bucket)
-            .field("root", &self.root)
-            .field("credential", &mask_string(&self.credential, 3))
             .finish()
     }
 }
