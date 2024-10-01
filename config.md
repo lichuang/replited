@@ -3,7 +3,8 @@
 - [Log config](#log-config)
 - [Database config](#database-config)
 	- [Replicate Config](#replicate-config)
-		- [File System Params](#file-system-params) 
+		- [File System Params](#file-system-params)
+  		- [Gcs Params](#gcs-params)
 		- [S3 Params](#s3-params)
   
   <!-- /MarkdownTOC -->
@@ -43,6 +44,15 @@ See config sample in [sample.toml](./etc/sample.toml)
 | :---- | ---- |
 | params.type | "Fs" |
 | params.root | root directory of file system backend |
+
+#### Gcs Params
+| item  |  value    |
+| :---- | ---- |
+| params.type | "Gcs" |
+| params.endpoint_url | Endpoint of this backend, must be full uri, use "https://storage.googleapis.com" by default. |
+| params.root | Root URI of gcs operations. |
+| params.bucket | Bucket name of this backend. |
+| params.credential | Credentials string for GCS service OAuth2 authentication. |
 
 #### S3 Params
 | item  |  value    |
