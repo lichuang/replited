@@ -1,0 +1,12 @@
+[log]
+level = "Debug"
+dir = "{root}"
+
+[[database]]
+db = "{root}/test.db"
+
+# sample of file system replicate config
+[[database.replicate]]
+name = "name of fs"
+params.type = "Fs"
+params.root = "{root}/replited"
