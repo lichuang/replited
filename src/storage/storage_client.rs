@@ -149,6 +149,9 @@ impl StorageClient {
         let mut max_index = None;
         for entry in entries {
             let metadata = entry.metadata();
+            if !metadata.is_file() {
+                continue;
+            }
             let index = parse_snapshot_path(entry.name())?;
             let mut update = false;
             match max_index {

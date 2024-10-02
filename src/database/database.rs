@@ -724,16 +724,18 @@ impl Database {
 
     // make sure wal file has at least one frame in it
     fn ensure_wal_exists(&self) -> Result<()> {
-        let stat = fs::metadata(&self.wal_file)?;
-        if !stat.is_file() {
-            return Err(Error::SqliteWalError(format!(
-                "wal {} is not a file",
-                self.wal_file,
-            )));
-        }
+        if fs::exists(&self.wal_file)? {
+            let stat = fs::metadata(&self.wal_file)?;
+            if !stat.is_file() {
+                return Err(Error::SqliteWalError(format!(
+                    "wal {} is not a file",
+                    self.wal_file,
+                )));
+            }
 
-        if stat.len() >= WAL_HEADER_SIZE {
-            return Ok(());
+            if stat.len() >= WAL_HEADER_SIZE {
+                return Ok(());
+            }
         }
 
         // create transaction that updates the internal table.
