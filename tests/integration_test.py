@@ -2,9 +2,9 @@ import sqlite3
 import os, sys
 import random
 import string
-from tempfile import TemporaryDirectory
 import subprocess
 import time
+import shutil
 
 class Test:
     def __init__(self, root, max_records):
@@ -28,15 +28,24 @@ class Test:
             name = ''.join(random.choices(string.ascii_letters, k=5))
             value = i + start
             records.append((name, value))
-        self.conn.executemany('INSERT INTO random_data (name, value) VALUES (?, ?)', records)
+        self.cursor.executemany('INSERT INTO random_data (name, value) VALUES (?, ?)', records)
         self.conn.commit()
 
         return num_records
 
     def insert(self):
         num_records = 0
+        sleep_num = 0
         while num_records < self.max_records:
-            num_records += self.insert_random_data(num_records)
+            num = self.insert_random_data(num_records)
+            num_records += num
+            sleep_num += num
+            if sleep_num > 500:
+                print("after insert ", sleep_num, " data, total: ", num_records, ", go to sleep(1)")
+                time.sleep(1)
+                sleep_num = 0
+
+        print("finish insert test data, total: ", num_records)
 
     def query_data(self):
         cursor = self.conn.cursor()
@@ -45,11 +54,12 @@ class Test:
 
 class ConfigGenerator:
     def __init__(self):
-        #self.root = TemporaryDirectory().name
         self.cwd = os.getcwd()
         self.root = self.cwd + "/.test"
+        # clean test dir
         try:
-            os.rmdir(self.root)
+            shutil.rmtree(self.root)
+            pass
         except:
             pass
         print("root: ", self.root)
@@ -87,12 +97,19 @@ class FsConfigGenerator(ConfigGenerator):
         self.config_file = config_file
 
 def start_replicate(p, config_file):
-    cmd = p + " --config " + config_file + " replicate"
-    subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    cmd = p + " --config " + config_file + " replicate &"
+    print("replicate cmd: ", cmd)
+    #cmds = [p, "--config", config_file, "replicate", "&"]
+    #pipe = subprocess.Popen(cmds, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    #ret = os.popen(cmds)
+    os.system(cmd)
+    #print("after replicate")
+    #print("after replicate: ", pipe.stdout.read())
 
 def stop_replicate():
     cmd = "killall replicate"
-    subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    os.system(cmd)
+    #subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 def test_restore(p, config_file, root, exp_data):
     db = root + "/test.db"
@@ -102,23 +119,25 @@ def test_restore(p, config_file, root, exp_data):
     except:
         pass
     cmd = p + " --config " + config_file + " restore --db " + db + " --output " + output
+    #cmds = [p, "--config", config_file,"restore", "--db", db, "--output", output]
     print("restore: ", cmd)
-    pipe = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    print("restore result: ", pipe.stdout.read())
+    #pipe = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    #pipe = subprocess.Popen(cmds, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    os.system(cmd)
+    #print("after restore")
 
     conn = sqlite3.connect(output)
     cursor = conn.cursor()
     cursor.execute('SELECT * FROM random_data order by value')
     data = cursor.fetchall()
-    print("data: ", len(data))
-    print("exp_data: ", len(exp_data))
+    print("data len: ", len(data), ", exp_data len: ", len(exp_data))
     assert data == exp_data
 
 if __name__ == '__main__':
     config = FsConfigGenerator()
     config.generate()
 
-    test = Test(config.root, 2)
+    test = Test(config.root, 20000)
     test.create_table()
 
     bin = "/Users/codedump/source/replited/target/debug/replited"
@@ -127,7 +146,6 @@ if __name__ == '__main__':
     test.insert()
 
     time.sleep(3)
-    print('sleep')
     data = test.query_data()
 
     stop_replicate()
