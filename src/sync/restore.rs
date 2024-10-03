@@ -90,6 +90,10 @@ impl Restore {
         wal_segments: &RestoreWalSegments,
         db_path: &str,
     ) -> Result<()> {
+        debug!(
+            "restore db {} apply wal segments: {:?}",
+            self.db, wal_segments
+        );
         let connection = Connection::open(db_path)?;
         let wal_file_name = format!("{}-wal", db_path);
         let sql = "PRAGMA wal_checkpoint(TRUNCATE)".to_string();

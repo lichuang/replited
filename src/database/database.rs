@@ -127,19 +127,58 @@ struct SyncInfo {
 }
 
 impl Database {
-    fn init_params(connection: &Connection) -> Result<()> {
+    fn init_params(db: &str, connection: &Connection) -> Result<()> {
+        let max_try_num = 10;
         // busy timeout
         connection.busy_timeout(Duration::from_secs(1))?;
-        // PRAGMA journal_mode = wal;
-        connection.pragma_update_and_check(None, "journal_mode", "WAL", |_param| {
-            // println!("journal_mode param: {:?}\n", param);
-            Ok(())
-        })?;
-        // PRAGMA wal_autocheckpoint = 0;
-        connection.pragma_update_and_check(None, "wal_autocheckpoint", "0", |_param| {
-            // println!("wal_autocheckpoint param: {:?}\n", param);
-            Ok(())
-        })?;
+
+        let mut try_num = 0;
+        while try_num < max_try_num {
+            try_num += 1;
+            // PRAGMA journal_mode = wal;
+            if let Err(e) =
+                connection.pragma_update_and_check(None, "journal_mode", "WAL", |_param| {
+                    // println!("journal_mode param: {:?}\n", param);
+                    Ok(())
+                })
+            {
+                error!("set journal_mode=wal error: {:?}", e);
+                continue;
+            }
+            try_num = 0;
+            break;
+        }
+        if try_num >= max_try_num {
+            error!("try set journal_mode=wal failed");
+            return Err(Error::SqliteError(format!(
+                "set journal_mode=wal for db {} failed",
+                db,
+            )));
+        }
+
+        let mut try_num = 0;
+        while try_num < max_try_num {
+            try_num += 1;
+            // PRAGMA wal_autocheckpoint = 0;
+            if let Err(e) =
+                connection.pragma_update_and_check(None, "wal_autocheckpoint", "0", |_param| {
+                    // println!("wal_autocheckpoint param: {:?}\n", param);
+                    Ok(())
+                })
+            {
+                error!("set wal_autocheckpoint=0 error: {:?}", e);
+                continue;
+            }
+            try_num = 0;
+            break;
+        }
+        if try_num >= max_try_num {
+            error!("try set wal_autocheckpoint=0 failed");
+            return Err(Error::SqliteError(format!(
+                "set wal_autocheckpoint=0 for db {} failed",
+                db,
+            )));
+        }
 
         Ok(())
     }
@@ -194,7 +233,7 @@ impl Database {
         info!("start database with config: {:?}\n", config);
         let connection = Connection::open(&config.db)?;
 
-        Database::init_params(&connection)?;
+        Database::init_params(&config.db, &connection)?;
 
         Database::create_internal_tables(&connection)?;
 
@@ -1027,7 +1066,13 @@ impl Drop for Database {
 }
 
 pub async fn run_database(config: DbConfig) -> Result<()> {
-    let (mut database, mut db_receiver) = Database::try_create(config)?;
+    let (mut database, mut db_receiver) = match Database::try_create(config.clone()) {
+        Ok((db, receiver)) => (db, receiver),
+        Err(e) => {
+            error!("run_database for {:?} error: {:?}", config, e);
+            return Err(e);
+        }
+    };
     loop {
         select! {
             cmd = db_receiver.recv() => {

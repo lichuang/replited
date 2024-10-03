@@ -107,7 +107,7 @@ def start_replicate(p, config_file):
     #print("after replicate: ", pipe.stdout.read())
 
 def stop_replicate():
-    cmd = "killall replicate"
+    cmd = "killall replited"
     os.system(cmd)
     #subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -134,10 +134,12 @@ def test_restore(p, config_file, root, exp_data):
     assert data == exp_data
 
 if __name__ == '__main__':
+    stop_replicate()
+
     config = FsConfigGenerator()
     config.generate()
 
-    test = Test(config.root, 20000)
+    test = Test(config.root, 2000)
     test.create_table()
 
     bin = "/Users/codedump/source/replited/target/debug/replited"
