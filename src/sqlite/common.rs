@@ -7,17 +7,37 @@ use crate::error::Result;
 
 pub const WAL_FRAME_HEADER_SIZE: u64 = 24;
 pub const WAL_HEADER_SIZE: u64 = 32;
-pub const WAL_HEADER_CHECKSUM_OFFSET: u64 = 24;
-pub const WAL_FRAME_HEADER_CHECKSUM_OFFSET: u64 = 16;
+
+const WAL_HEADER_CHECKSUM_OFFSET: u64 = 24;
+const WAL_FRAME_HEADER_CHECKSUM_OFFSET: u64 = 16;
 
 pub const WAL_HEADER_BIG_ENDIAN_MAGIC: [u8; 4] = [0x37, 0x7f, 0x06, 0x83];
 pub const WAL_HEADER_LITTLE_ENDIAN_MAGIC: [u8; 4] = [0x37, 0x7f, 0x06, 0x82];
 
 // SQLite checkpoint modes.
-pub const CHECKPOINT_MODE_PASSIVE: &str = "PASSIVE";
-pub const CHECKPOINT_MODE_FULL: &str = "FULL";
-pub const CHECKPOINT_MODE_RESTART: &str = "RESTART";
-pub const CHECKPOINT_MODE_TRUNCATE: &str = "TRUNCATE";
+const CHECKPOINT_MODE_PASSIVE: &str = "PASSIVE";
+const CHECKPOINT_MODE_FULL: &str = "FULL";
+const CHECKPOINT_MODE_RESTART: &str = "RESTART";
+const CHECKPOINT_MODE_TRUNCATE: &str = "TRUNCATE";
+
+#[derive(Clone)]
+pub enum CheckpointMode {
+    Passive,
+    Full,
+    Restart,
+    Truncate,
+}
+
+impl CheckpointMode {
+    pub fn as_str(&self) -> &str {
+        match self {
+            CheckpointMode::Passive => CHECKPOINT_MODE_PASSIVE,
+            CheckpointMode::Full => CHECKPOINT_MODE_FULL,
+            CheckpointMode::Restart => CHECKPOINT_MODE_RESTART,
+            CheckpointMode::Truncate => CHECKPOINT_MODE_TRUNCATE,
+        }
+    }
+}
 
 // implementation of sqlite check algorithm
 pub fn checksum(data: &[u8], s1: u32, s2: u32, is_big_endian: bool) -> (u32, u32) {

@@ -285,11 +285,8 @@ impl StorageClient {
 
             let generation = match Generation::try_create(&generation) {
                 Ok(generation) => generation,
-                Err(e) => {
-                    error!(
-                        "dir {} is not valid generation dir, err: {:?}",
-                        generation, e
-                    );
+                Err(_e) => {
+                    error!("dir {} is not valid generation dir", generation,);
                     continue;
                 }
             };

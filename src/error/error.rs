@@ -49,6 +49,16 @@ impl Error {
     pub fn backtrace(&self) -> Option<ErrorCodeBacktrace> {
         self.backtrace.clone()
     }
+
+    // output a string without backtrace
+    pub fn simple_string(&self) -> String {
+        format!(
+            "{}. Code: {}, Text = {}.",
+            self.name,
+            self.code(),
+            self.message(),
+        )
+    }
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

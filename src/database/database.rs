@@ -42,11 +42,9 @@ use crate::error::Result;
 use crate::sqlite::align_frame;
 use crate::sqlite::checksum;
 use crate::sqlite::read_last_checksum;
+use crate::sqlite::CheckpointMode;
 use crate::sqlite::WALFrame;
 use crate::sqlite::WALHeader;
-use crate::sqlite::CHECKPOINT_MODE_PASSIVE;
-use crate::sqlite::CHECKPOINT_MODE_RESTART;
-use crate::sqlite::CHECKPOINT_MODE_TRUNCATE;
 use crate::sqlite::WAL_FRAME_HEADER_SIZE;
 use crate::sqlite::WAL_HEADER_SIZE;
 use crate::sync::Replicate;
@@ -337,6 +335,57 @@ impl Database {
         WAL_HEADER_SIZE + (WAL_FRAME_HEADER_SIZE + self.page_size) * n
     }
 
+    fn decide_checkpoint_mode(
+        &self,
+        orig_wal_size: u64,
+        new_wal_size: u64,
+        info: &SyncInfo,
+    ) -> Option<CheckpointMode> {
+        // If WAL size is great than max threshold, force checkpoint.
+        // If WAL size is greater than min threshold, attempt checkpoint.
+        if self.config.truncate_page_number > 0
+            && orig_wal_size >= self.calc_wal_size(self.config.truncate_page_number)
+        {
+            debug!(
+                "checkpoint by orig_wal_size({}) > truncate_page_number({})",
+                orig_wal_size, self.config.truncate_page_number
+            );
+            return Some(CheckpointMode::Truncate);
+        } else if self.config.max_checkpoint_page_number > 0
+            && new_wal_size >= self.calc_wal_size(self.config.max_checkpoint_page_number)
+        {
+            debug!(
+                "checkpoint by new_wal_size({}) > max_checkpoint_page_number({})",
+                new_wal_size, self.config.max_checkpoint_page_number
+            );
+            return Some(CheckpointMode::Restart);
+        } else if new_wal_size >= self.calc_wal_size(self.config.min_checkpoint_page_number) {
+            debug!(
+                "checkpoint by new_wal_size({}) > min_checkpoint_page_number({})",
+                new_wal_size, self.config.min_checkpoint_page_number
+            );
+            return Some(CheckpointMode::Passive);
+        } else if self.config.checkpoint_interval_secs > 0 {
+            if let Some(db_mod_time) = &info.db_mod_time {
+                let now = SystemTime::now();
+
+                if let Ok(duration) = now.duration_since(*db_mod_time) {
+                    if duration.as_secs() > self.config.checkpoint_interval_secs
+                        && new_wal_size > self.calc_wal_size(1)
+                    {
+                        debug!(
+                            "checkpoint by db_mod_time > checkpoint_interval_secs({})",
+                            self.config.checkpoint_interval_secs
+                        );
+                        return Some(CheckpointMode::Passive);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     // copy pending data from wal to shadow wal
     async fn sync(&mut self) -> Result<()> {
         debug!("sync database: {}", self.config.db);
@@ -373,41 +422,12 @@ impl Database {
 
         // Synchronize real WAL with current shadow WAL.
         let (orig_wal_size, new_wal_size) = self.sync_wal(&info)?;
+        let checkmode = self.decide_checkpoint_mode(orig_wal_size, new_wal_size, &info);
 
-        // If WAL size is great than max threshold, force checkpoint.
-        // If WAL size is greater than min threshold, attempt checkpoint.
-        let mut checkpoint = false;
-        let mut checkmode = CHECKPOINT_MODE_PASSIVE;
-        if self.config.truncate_page_number > 0
-            && orig_wal_size >= self.calc_wal_size(self.config.truncate_page_number)
-        {
-            checkpoint = true;
-            checkmode = CHECKPOINT_MODE_TRUNCATE;
-        } else if self.config.max_checkpoint_page_number > 0
-            && new_wal_size >= self.calc_wal_size(self.config.max_checkpoint_page_number)
-        {
-            checkpoint = true;
-            checkmode = CHECKPOINT_MODE_RESTART;
-        } else if new_wal_size >= self.calc_wal_size(self.config.min_checkpoint_page_number) {
-            checkpoint = true;
-        } else if self.config.checkpoint_interval_secs > 0 {
-            if let Some(db_mod_time) = &info.db_mod_time {
-                let now = SystemTime::now();
-
-                if let Ok(duration) = now.duration_since(*db_mod_time) {
-                    if duration.as_secs() > self.config.checkpoint_interval_secs
-                        && new_wal_size > self.calc_wal_size(1)
-                    {
-                        checkpoint = true;
-                    }
-                }
-            }
-        }
-
-        if checkpoint {
+        if let Some(checkmode) = checkmode {
             changed = true;
 
-            self.do_checkpoint(info.generation.as_str(), checkmode)?;
+            self.do_checkpoint(info.generation.as_str(), checkmode.as_str())?;
         }
 
         // Clean up any old files.
@@ -937,10 +957,10 @@ impl Database {
         Ok(info)
     }
 
-    fn checkpoint(&mut self, mode: &str) -> Result<()> {
+    fn checkpoint(&mut self, mode: CheckpointMode) -> Result<()> {
         let generation = self.current_generation()?;
 
-        self.do_checkpoint(&generation, mode)
+        self.do_checkpoint(&generation, mode.as_str())
     }
 
     // checkpoint performs a checkpoint on the WAL file and initializes a
@@ -1027,7 +1047,7 @@ impl Database {
 
     fn snapshot(&mut self) -> Result<Vec<u8>> {
         // Issue a passive checkpoint to flush any pages to disk before snapshotting.
-        self.checkpoint(CHECKPOINT_MODE_PASSIVE)?;
+        self.checkpoint(CheckpointMode::Passive)?;
 
         // Prevent internal checkpoints during snapshot.
 
