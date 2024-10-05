@@ -35,13 +35,13 @@ inspired by [Litestream](https://litestream.io/), with the power of [Rust](https
 Start a daemon to replicate sqlite:
 
 ```shell
-replited replicate --config {config file}
+replited --config {config file} replicate 
 ```
 
 Restore sqlite from backend:
 
 ```shell
-replited restore --config {config file} --db {db in config file} --output {output sqlite db file path}
+replited --config {config file} restore --db {db in config file} --output {output sqlite db file path}
 ```
 
 ## Config
