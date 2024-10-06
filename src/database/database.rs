@@ -422,8 +422,13 @@ impl Database {
 
         // Synchronize real WAL with current shadow WAL.
         let (orig_wal_size, new_wal_size) = self.sync_wal(&info)?;
-        let checkmode = self.decide_checkpoint_mode(orig_wal_size, new_wal_size, &info);
+        debug!(
+            "db {} sync_wal {}:{}",
+            self.config.db, orig_wal_size, new_wal_size
+        );
 
+        // decide if need to do checkpoint
+        let checkmode = self.decide_checkpoint_mode(orig_wal_size, new_wal_size, &info);
         if let Some(checkmode) = checkmode {
             changed = true;
 
@@ -524,6 +529,10 @@ impl Database {
     // copies pending bytes from the real WAL to the shadow WAL.
     fn sync_wal(&self, info: &SyncInfo) -> Result<(u64, u64)> {
         let (orig_size, new_size) = self.copy_to_shadow_wal(&info.shadow_wal_file)?;
+        debug!(
+            "db {} sync_wal copy_to_shadow_wal: {}, {}",
+            self.config.db, orig_size, new_size
+        );
 
         if !info.restart {
             return Ok((orig_size, new_size));
@@ -664,7 +673,11 @@ impl Database {
         debug!("create shadow wal file {}", shadow_wal);
 
         // copy wal file frame into shadow wal file
-        let (_, new_size) = self.copy_to_shadow_wal(shadow_wal)?;
+        let (orig_size, new_size) = self.copy_to_shadow_wal(shadow_wal)?;
+        debug!(
+            "db {} init_shadow_wal_file copy_to_shadow_wal: {}, {}",
+            self.config.db, orig_size, new_size
+        );
 
         Ok(new_size)
     }
@@ -692,19 +705,28 @@ impl Database {
         let mut wal_file = File::open(wal_file_name)?;
         wal_file.seek(SeekFrom::Start(orig_shadow_wal_size))?;
         // read last checksum of shadow wal file
-        let (ck1, ck2) = read_last_checksum(shadow_wal, self.page_size)?;
+        let (mut ck1, mut ck2) = read_last_checksum(shadow_wal, self.page_size)?;
         let mut offset = orig_shadow_wal_size;
         let mut last_commit_size = orig_shadow_wal_size;
 
+        debug!(
+            "wal header salt: ({}, {})",
+            wal_header.salt1, wal_header.salt2
+        );
         // Read through WAL from last position to find the page of the last
         // committed transaction.
         loop {
+            debug!(
+                "db {} copy frame at {}, checksum: ({}, {})",
+                self.config.db, offset, ck1, ck2
+            );
+
             let wal_frame = WALFrame::read(&mut wal_file, self.page_size);
             let wal_frame = match wal_frame {
                 Ok(wal_frame) => wal_frame,
                 Err(e) => {
                     if e.code() == Error::UNEXPECTED_EOF_ERROR {
-                        debug!("copy_to_shadow_wal end of file at offset: {}", offset);
+                        debug!("copy_to_shadow_wal EOF at offset: {}", offset);
                         break;
                     } else {
                         error!("copy_to_shadow_wal error {} at offset {}", e, offset);
@@ -712,6 +734,11 @@ impl Database {
                     }
                 }
             };
+
+            debug!(
+                "db {} copy frame at {}, salt: ({}, {})",
+                self.config.db, offset, wal_frame.salt1, wal_frame.salt2
+            );
 
             // compare wal frame salts with wal header salts, break if mismatch
             if wal_frame.salt1 != wal_header.salt1 || wal_frame.salt2 != wal_header.salt2 {
@@ -723,9 +750,9 @@ impl Database {
             }
 
             // frame header
-            let (ck1, ck2) = checksum(&wal_frame.data[0..8], ck1, ck2, wal_header.is_big_endian);
+            (ck1, ck2) = checksum(&wal_frame.data[0..8], ck1, ck2, wal_header.is_big_endian);
             // frame data
-            let (ck1, ck2) = checksum(&wal_frame.data[24..], ck1, ck2, wal_header.is_big_endian);
+            (ck1, ck2) = checksum(&wal_frame.data[24..], ck1, ck2, wal_header.is_big_endian);
             if ck1 != wal_frame.checksum1 || ck2 != wal_frame.checksum2 {
                 debug!(
                     "db {} copy shadow wal checksum mismatch at offset {}, check: ({},{}),({},{})",
@@ -974,7 +1001,11 @@ impl Database {
         let wal_header1 = WALHeader::read(&self.wal_file)?;
 
         // Copy shadow WAL before checkpoint to copy as much as possible.
-        self.copy_to_shadow_wal(&shadow_wal_file)?;
+        let (orig_size, new_size) = self.copy_to_shadow_wal(&shadow_wal_file)?;
+        debug!(
+            "db {} do_checkpoint copy_to_shadow_wal: {}, {}",
+            self.config.db, orig_size, new_size
+        );
 
         // Execute checkpoint and immediately issue a write to the WAL to ensure
         // a new page is written.
@@ -1003,7 +1034,11 @@ impl Database {
         tx.execute("INSERT INTO _replited_lock (id) VALUES (1);", ())?;
 
         // Copy the end of the previous WAL before starting a new shadow WAL.
-        self.copy_to_shadow_wal(&shadow_wal_file)?;
+        let (orig_size, new_size) = self.copy_to_shadow_wal(&shadow_wal_file)?;
+        debug!(
+            "db {} do_checkpoint after checkpoint copy_to_shadow_wal: {}, {}",
+            self.config.db, orig_size, new_size
+        );
 
         // Parse index of current shadow WAL file.
         let index = parse_wal_path(&shadow_wal_file)?;
@@ -1045,7 +1080,7 @@ impl Database {
         Ok(())
     }
 
-    fn snapshot(&mut self) -> Result<Vec<u8>> {
+    fn snapshot(&mut self) -> Result<(Vec<u8>, WalGenerationPos)> {
         // Issue a passive checkpoint to flush any pages to disk before snapshotting.
         self.checkpoint(CheckpointMode::Passive)?;
 
@@ -1063,12 +1098,17 @@ impl Database {
         // compress db file
         let compressed_data = compress_file(&self.config.db)?;
 
-        Ok(compressed_data.to_owned())
+        Ok((compressed_data.to_owned(), pos))
     }
 
     async fn handle_db_snapshot_command(&mut self, index: usize) -> Result<()> {
-        let compressed_data = self.snapshot()?;
-        let generation_pos = self.wal_generation_position()?;
+        let (compressed_data, generation_pos) = self.snapshot()?;
+        debug!(
+            "db {} snapshot {} data of pos {:?}",
+            self.config.db,
+            compressed_data.len(),
+            generation_pos
+        );
         self.sync_notifiers[index]
             .send(ReplicateCommand::Snapshot((
                 generation_pos,
