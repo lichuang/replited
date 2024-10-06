@@ -708,19 +708,9 @@ impl Database {
         let (mut ck1, mut ck2) = read_last_checksum(shadow_wal, self.page_size)?;
         let mut offset = orig_shadow_wal_size;
         let mut last_commit_size = orig_shadow_wal_size;
-
-        debug!(
-            "wal header salt: ({}, {})",
-            wal_header.salt1, wal_header.salt2
-        );
         // Read through WAL from last position to find the page of the last
         // committed transaction.
         loop {
-            debug!(
-                "db {} copy frame at {}, checksum: ({}, {})",
-                self.config.db, offset, ck1, ck2
-            );
-
             let wal_frame = WALFrame::read(&mut wal_file, self.page_size);
             let wal_frame = match wal_frame {
                 Ok(wal_frame) => wal_frame,
@@ -734,11 +724,6 @@ impl Database {
                     }
                 }
             };
-
-            debug!(
-                "db {} copy frame at {}, salt: ({}, {})",
-                self.config.db, offset, wal_frame.salt1, wal_frame.salt2
-            );
 
             // compare wal frame salts with wal header salts, break if mismatch
             if wal_frame.salt1 != wal_header.salt1 || wal_frame.salt2 != wal_header.salt2 {

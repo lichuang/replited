@@ -169,7 +169,7 @@ impl Replicate {
         let init_pos = reader.position();
         let mut data = Vec::new();
 
-        // debug!("db {} write wal segment position {:?}", self.db, init_pos,);
+        debug!("db {} write wal segment position {:?}", self.db, init_pos,);
 
         // Copy header if at offset zero.
         let mut salt1 = 0;

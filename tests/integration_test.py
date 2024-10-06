@@ -139,7 +139,7 @@ if __name__ == '__main__':
     config = FsConfigGenerator()
     config.generate()
 
-    test = Test(config.root, 2000)
+    test = Test(config.root, 12000)
     test.create_table()
 
     bin = "/Users/codedump/source/replited/target/debug/replited"

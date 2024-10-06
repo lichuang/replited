@@ -20,6 +20,8 @@ use crate::storage::SnapshotInfo;
 use crate::storage::StorageClient;
 use crate::storage::WalSegmentInfo;
 
+static WAL_CHECKPOINT_TRUNCATE: &str = "PRAGMA wal_checkpoint(TRUNCATE);";
+
 struct Restore {
     db: String,
     config: Vec<StorageConfig>,
@@ -94,9 +96,7 @@ impl Restore {
             "restore db {} apply wal segments: {:?}",
             self.db, wal_segments
         );
-        let connection = Connection::open(db_path)?;
         let wal_file_name = format!("{}-wal", db_path);
-        let sql = "PRAGMA wal_checkpoint(TRUNCATE)".to_string();
 
         for (index, offsets) in wal_segments {
             let mut wal_decompressed_data = Vec::new();
@@ -113,6 +113,7 @@ impl Restore {
                 wal_decompressed_data.extend_from_slice(&data);
             }
 
+            // prepare db wal before open db connection
             let mut wal_file = OpenOptions::new()
                 .write(true)
                 .create(true)
@@ -120,13 +121,19 @@ impl Restore {
                 .open(&wal_file_name)?;
 
             wal_file.write_all(&wal_decompressed_data)?;
-            if let Err(e) = connection.execute_batch(&sql) {
+            wal_file.flush()?;
+
+            let connection = Connection::open(db_path)?;
+
+            if let Err(e) = connection.query_row(WAL_CHECKPOINT_TRUNCATE, [], |_row| Ok(())) {
                 error!(
                     "truncation checkpoint failed during restore {}:{:?}",
                     index, offsets
                 );
                 return Err(e.into());
             }
+
+            // connection.close().unwrap();
         }
 
         Ok(())

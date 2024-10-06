@@ -8,17 +8,17 @@ use crate::error::Result;
 pub const WAL_FRAME_HEADER_SIZE: u64 = 24;
 pub const WAL_HEADER_SIZE: u64 = 32;
 
-const WAL_HEADER_CHECKSUM_OFFSET: u64 = 24;
-const WAL_FRAME_HEADER_CHECKSUM_OFFSET: u64 = 16;
+static WAL_HEADER_CHECKSUM_OFFSET: u64 = 24;
+static WAL_FRAME_HEADER_CHECKSUM_OFFSET: u64 = 16;
 
 pub const WAL_HEADER_BIG_ENDIAN_MAGIC: [u8; 4] = [0x37, 0x7f, 0x06, 0x83];
 pub const WAL_HEADER_LITTLE_ENDIAN_MAGIC: [u8; 4] = [0x37, 0x7f, 0x06, 0x82];
 
 // SQLite checkpoint modes.
-const CHECKPOINT_MODE_PASSIVE: &str = "PASSIVE";
-const CHECKPOINT_MODE_FULL: &str = "FULL";
-const CHECKPOINT_MODE_RESTART: &str = "RESTART";
-const CHECKPOINT_MODE_TRUNCATE: &str = "TRUNCATE";
+static CHECKPOINT_MODE_PASSIVE: &str = "PASSIVE";
+static CHECKPOINT_MODE_FULL: &str = "FULL";
+static CHECKPOINT_MODE_RESTART: &str = "RESTART";
+static CHECKPOINT_MODE_TRUNCATE: &str = "TRUNCATE";
 
 #[derive(Clone)]
 pub enum CheckpointMode {
