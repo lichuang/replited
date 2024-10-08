@@ -24,3 +24,4 @@ jobs:
           cargo build --release 
           ls 
           pwd
+          python3 tests/integration_test.py 12000 fs ./target/release/replited
