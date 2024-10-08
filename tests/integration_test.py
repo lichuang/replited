@@ -133,17 +133,33 @@ def test_restore(p, config_file, root, exp_data):
     print("data len: ", len(data), ", exp_data len: ", len(exp_data))
     assert data == exp_data
 
+def decide_config_generator(config_type):
+    if config_type == "fs":
+        return FsConfigGenerator()
+    else:
+        print("invalid config type: ", config_type)
+        sys.exit(-1)
+
+# python3 tests/integration_test.py [number of data] [config type] [replited bin path]
 if __name__ == '__main__':
+    print("args: ", sys.argv)
+    number = int(sys.argv[1])
+    if number <= 0:
+        print("invalid number: ", number)
+        sys.exit(-1)
+    config_type = sys.argv[2]
+    bin_path = sys.argv[3]
+
     stop_replicate()
 
-    config = FsConfigGenerator()
+    config = decide_config_generator(config_type)
     config.generate()
 
-    test = Test(config.root, 12000)
+    test = Test(config.root, number)
     test.create_table()
 
-    bin = "/Users/codedump/source/replited/target/debug/replited"
-    start_replicate(bin, config.config_file)
+    #bin = "/Users/codedump/source/replited/target/debug/replited"
+    start_replicate(bin_path, config.config_file)
 
     test.insert()
 
@@ -152,5 +168,5 @@ if __name__ == '__main__':
 
     stop_replicate()
 
-    test_restore(bin, config.config_file, config.root, data)
+    test_restore(bin_path, config.config_file, config.root, data)
 
