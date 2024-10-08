@@ -35,7 +35,7 @@ params.root = "/var/replited"
 # sample of s3 replicate config
 [[database.replicate]]
 name = "name of s3"
-params.type = "Fs"
+params.type = "S3"
 params.endpoint = "http://127.0.0.1:9900"
 params.bucket = "sqlite"
 params.region = ""

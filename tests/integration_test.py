@@ -68,7 +68,7 @@ class ConfigGenerator:
         except:
             pass
 
-        self.config_file = ""
+        self.config_file = self.root + "/replited.toml"
 
     def generate(self):
         print("generate config for backend type ", self.type)
@@ -90,11 +90,31 @@ class FsConfigGenerator(ConfigGenerator):
         file = open(self.cwd + '/tests/config/fs_template.toml')
         content = file.read()
         content = content.replace('{root}', self.root)
-        config_file = self.root + "/fs.toml"
+        config_file = self.config_file
         file = open(config_file, 'w+')
         file.write(content)
         file.close()
-        self.config_file = config_file
+
+class S3ConfigGenerator(ConfigGenerator):
+    def __init__(self):
+        ConfigGenerator.__init__(self)
+        self.type = 'S3'
+
+    def do_generate(self):
+        # create root dir of fs
+        try:
+            os.makedirs(self.root + "/replited")
+        except:
+            pass
+
+        # generate config file
+        file = open(self.cwd + '/tests/config/s3_template.toml')
+        content = file.read()
+        content = content.replace('{root}', self.root)
+        config_file = self.config_file
+        file = open(config_file, 'w+')
+        file.write(content)
+        file.close()
 
 def start_replicate(p, config_file):
     cmd = p + " --config " + config_file + " replicate &"
@@ -136,6 +156,8 @@ def test_restore(p, config_file, root, exp_data):
 def decide_config_generator(config_type):
     if config_type == "fs":
         return FsConfigGenerator()
+    elif config_type == "s3":
+        return S3ConfigGenerator()
     else:
         print("invalid config type: ", config_type)
         sys.exit(-1)
@@ -158,7 +180,6 @@ if __name__ == '__main__':
     test = Test(config.root, number)
     test.create_table()
 
-    #bin = "/Users/codedump/source/replited/target/debug/replited"
     start_replicate(bin_path, config.config_file)
 
     test.insert()

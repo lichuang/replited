@@ -1,0 +1,16 @@
+[log]
+level = "Debug"
+dir = "{root}"
+
+[[database]]
+db = "{root}/test.db"
+
+[[database.replicate]]
+name = "name of s3"
+params.type = "S3"
+params.endpoint = "http://127.0.0.1:9000"
+params.bucket = "test"
+params.region = ""
+params.root = ""
+params.access_key_id = "minioadmin"
+params.secret_access_key = "minioadmin"

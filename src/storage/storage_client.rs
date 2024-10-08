@@ -2,11 +2,13 @@ use std::collections::BTreeMap;
 
 use chrono::DateTime;
 use chrono::Utc;
+use log::debug;
 use log::error;
 use opendal::Metakey;
 use opendal::Operator;
 
 use super::init_operator;
+use crate::base::parent_dir;
 use crate::base::parse_snapshot_path;
 use crate::base::parse_wal_segment_path;
 use crate::base::path_base;
@@ -65,6 +67,27 @@ impl StorageClient {
         })
     }
 
+    async fn ensure_parent_exist(&self, path: &str) -> Result<()> {
+        let base = format!("{}/", parent_dir(path).unwrap());
+
+        let mut exist = false;
+        match self.operator.is_exist(&base).await {
+            Err(e) => {
+                debug!("check path {} parent_dir error: {}", path, e.kind())
+            }
+            Ok(r) => {
+                exist = r;
+            }
+        }
+
+        if !exist {
+            debug!("create dir {}", base);
+            self.operator.create_dir(&base).await?;
+        }
+
+        Ok(())
+    }
+
     pub async fn write_wal_segment(
         &self,
         pos: &WalGenerationPos,
@@ -76,6 +99,8 @@ impl StorageClient {
             pos.index,
             pos.offset,
         );
+
+        self.ensure_parent_exist(&file).await?;
 
         self.operator.write(&file, compressed_data).await?;
 
@@ -94,6 +119,9 @@ impl StorageClient {
             size: compressed_data.len() as u64,
             created_at: Utc::now(),
         };
+
+        self.ensure_parent_exist(&snapshot_file).await?;
+
         self.operator.write(&snapshot_file, compressed_data).await?;
 
         Ok(snapshot_info)
@@ -110,12 +138,29 @@ impl StorageClient {
     pub async fn snapshots(&self, generation: &str) -> Result<Vec<SnapshotInfo>> {
         let generation = Generation::try_create(generation)?;
         let snapshots_dir = snapshots_dir(&self.db_name, generation.as_str());
-        let entries = self
+        let entries = match self
             .operator
             .list_with(&snapshots_dir)
             .metakey(Metakey::ContentLength)
             .metakey(Metakey::LastModified)
-            .await?;
+            .await
+        {
+            Ok(entries) => entries,
+            Err(e) => {
+                debug!(
+                    "list snapshots {:?} error kind: {:?}",
+                    generation,
+                    e.to_string()
+                );
+                if e.kind() == opendal::ErrorKind::NotADirectory
+                    || e.kind() == opendal::ErrorKind::Unexpected
+                {
+                    return Ok(vec![]);
+                } else {
+                    return Err(e.into());
+                }
+            }
+        };
 
         let mut snapshots = vec![];
         for entry in entries {
