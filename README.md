@@ -27,7 +27,7 @@ Inspired by [Litestream](https://litestream.io/), with the power of [Rust](https
 | Type                       | Services                                                     |
 | -------------------------- | ------------------------------------------------------------ |
 | Standard Storage Protocols | ftp                                    |
-| Object Storage Services    | [gcs] [s3] |
+| Object Storage Services    | [gcs] [s3]![CI](https://github.com/lichuang/replited/actions/workflows/s3_integration_test.yml/badge.svg) |
 | File Storage Services      | fs![CI](https://github.com/lichuang/replited/actions/workflows/fs_integration_test.yml/badge.svg)                                                          |
 
 [gcs]: https://cloud.google.com/storage
