@@ -5,7 +5,7 @@
 
 <!-- MarkdownTOC autolink="true" -->
 - [Introduction](#introduction)
-- [Why use replited](#why-use-replited)
+- [Why replited](#why-replited)
 - [Support Backend](#support-backend)
 - [Quick Start](#quick-start)
 - [Config](#config)
@@ -18,7 +18,7 @@
 
 Inspired by [Litestream](https://litestream.io/), with the power of [Rust](https://www.rust-lang.org/) and [OpenDAL](https://opendal.apache.org/), replited target to replicate sqlite to everywhere(file system,s3,ftp,google drive,dropbox,etc).
 
-## Why use replited
+## Why replited
 * Using sqlite's [WAL](https://sqlite.org/wal.html) mechanism, instead of backing up full data every time, do incremental backup of data to reduce the amount of synchronised data;
 * Support for multiple types of storage backends,such as s3,gcs,ftp,local file system,etc.
 
