@@ -1,0 +1,16 @@
+name: minio_s3
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup MinIO Server
+      shell: bash
+      working-directory: fixtures/s3
+      run: docker compose -f docker-compose-minio.yml up -d --wait
+    - name: Setup test bucket
+      shell: bash
+      env:
+        AWS_ACCESS_KEY_ID: "minioadmin"
+        AWS_SECRET_ACCESS_KEY: "minioadmin"
+        AWS_EC2_METADATA_DISABLED: "true"
+      run: aws --endpoint-url http://127.0.0.1:9000/ s3 mb s3://test

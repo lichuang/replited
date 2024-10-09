@@ -1,0 +1,30 @@
+name: S3 integration test
+
+on:
+  schedule: # execute every 24 hours
+    - cron: "* */24 * * *"
+  workflow_dispatch:
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Checkout codes'
+        uses: actions/checkout@v4
+        with:
+          # fetch depth set to 0 to make sure we have correct diff result.
+          fetch-depth: 0
+
+      - name: Setup Rust toolchain
+        uses: ./.github/actions/setup
+
+      - name: Setup Minio
+        uses: ./.github/services/s3/minio
+
+      - name: 'Run integration test for s3'
+        shell: bash
+        run: |
+          cargo build --release 
+          ls 
+          pwd
+          python3 tests/integration_test.py 12000 s3 ./target/release/replited
