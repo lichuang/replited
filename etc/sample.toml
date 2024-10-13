@@ -8,14 +8,21 @@ db = "/var/sqlite/test.db"
 # each database has at least one replicate backend, 
 # each replication config in one db MUST has different name
 
-# sample of gcs replicate config
+# sample of azure blob replicate config
 [[database.replicate]]
-name = "name of ccs"
-params.type = "Gcs"
-params.endpoint = "https://storage.googleapis.com"
-params.bucket = "sqlite"
+name = "name of azure blob"
+params.type = "Azb"
+params.endpoint = "xxx"
+params.container = "xxx"
 params.root = ""
-params.credential = "xxx"
+params.account_name = "xxx"
+params.account_key = "xxx"
+
+# sample of file system replicate config
+[[database.replicate]]
+name = "name of fs"
+params.type = "Fs"
+params.root = "/var/replited"
 
 # sample of ftp replicate config
 [[database.replicate]]
@@ -26,11 +33,14 @@ params.root = "/var/replited"
 params.username = "username"
 params.password = "password"
 
-# sample of file system replicate config
+# sample of gcs replicate config
 [[database.replicate]]
-name = "name of fs"
-params.type = "Fs"
-params.root = "/var/replited"
+name = "name of gcs"
+params.type = "Gcs"
+params.endpoint = "https://storage.googleapis.com"
+params.bucket = "sqlite"
+params.root = ""
+params.credential = "xxx"
 
 # sample of s3 replicate config
 [[database.replicate]]
@@ -42,8 +52,6 @@ params.region = ""
 params.root = ""
 params.access_key_id = "minioadmin"
 params.secret_access_key = "minioadmin"
-
-
 
 
 # can add more than one database config

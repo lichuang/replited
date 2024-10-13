@@ -10,6 +10,7 @@ use opendal::Builder;
 use opendal::Operator;
 use reqwest_hickory_resolver::HickoryResolver;
 
+use crate::config::StorageAzblobConfig;
 use crate::config::StorageFsConfig;
 use crate::config::StorageFtpConfig;
 use crate::config::StorageGcsConfig;
@@ -23,10 +24,11 @@ static GLOBAL_HICKORY_RESOLVER: LazyLock<Arc<HickoryResolver>> =
 
 pub fn init_operator(cfg: &StorageParams) -> Result<Operator> {
     let op = match cfg {
+        StorageParams::Azb(cfg) => build_operator(init_azblob_operator(cfg)?)?,
         StorageParams::Fs(cfg) => build_operator(init_fs_operator(cfg)?)?,
         StorageParams::Ftp(cfg) => build_operator(init_ftp_operator(cfg)?)?,
-        StorageParams::S3(cfg) => build_operator(init_s3_operator(cfg)?)?,
         StorageParams::Gcs(cfg) => build_operator(init_gcs_operator(cfg)?)?,
+        StorageParams::S3(cfg) => build_operator(init_s3_operator(cfg)?)?,
     };
 
     Ok(op)
@@ -36,6 +38,23 @@ pub fn build_operator<B: Builder>(builder: B) -> Result<Operator> {
     let op = Operator::new(builder)?;
 
     Ok(op.finish())
+}
+
+/// init_azblob_operator will init an opendal azblob operator.
+pub fn init_azblob_operator(cfg: &StorageAzblobConfig) -> Result<impl Builder> {
+    let builder = services::Azblob::default()
+        // Endpoint
+        .endpoint(&cfg.endpoint)
+        // Container
+        .container(&cfg.container)
+        // Root
+        .root(&cfg.root)
+        // Credential
+        .account_name(&cfg.account_name)
+        .account_key(&cfg.account_key)
+        .http_client(new_storage_http_client()?);
+
+    Ok(builder)
 }
 
 /// init_gcs_operator will init a opendal gcs operator.

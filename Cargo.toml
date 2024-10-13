@@ -13,9 +13,10 @@ clap = { version = "4.4.2", features = ["derive"] }
 opendal = { version = "0.50.0", features = [
   "layers-fastrace",
   "layers-async-backtrace",
-  "services-gcs",
+  "services-azblob",
   "services-fs",
   "services-ftp",
+  "services-gcs",
   "services-s3",
 ] }
 log = "0.4.17"
