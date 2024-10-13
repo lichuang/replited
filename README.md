@@ -27,7 +27,7 @@ Inspired by [Litestream](https://litestream.io/), with the power of [Rust](https
 | Type                       | Services                                                     |
 | -------------------------- | ------------------------------------------------------------ |
 | Standard Storage Protocols | ftp![CI](https://github.com/lichuang/replited/actions/workflows/ftp_integration_test.yml/badge.svg)                                    |
-| Object Storage Services    | [azblob] [gcs] [s3]![CI](https://github.com/lichuang/replited/actions/workflows/s3_integration_test.yml/badge.svg) |
+| Object Storage Services    | [azblob] [gcs] <br> [s3]![CI](https://github.com/lichuang/replited/actions/workflows/s3_integration_test.yml/badge.svg) |
 | File Storage Services      | fs![CI](https://github.com/lichuang/replited/actions/workflows/fs_integration_test.yml/badge.svg)                                                          |
 
 [azblob]: https://azure.microsoft.com/en-us/services/storage/blobs/
