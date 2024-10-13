@@ -2,7 +2,7 @@ name: S3 integration test
 
 on:
   schedule: # execute every 24 hours
-    - cron: "* */24 * * *"
+    - cron: "* 0 * * *"
   workflow_dispatch:
 
 jobs:
