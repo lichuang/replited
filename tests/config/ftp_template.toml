@@ -1,0 +1,15 @@
+[log]
+level = "Debug"
+dir = "{root}"
+
+[[database]]
+db = "{root}/test.db"
+
+# sample of file system replicate config
+[[database.replicate]]
+name = "ftp replicate"
+params.type = "Ftp"
+params.endpoint = "ftp://127.0.0.1:2121"
+params.root = "/"
+params.username = "admin"
+params.password = "admin"

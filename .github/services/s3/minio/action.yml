@@ -1,4 +1,5 @@
 name: minio_s3
+description: 'integration test for minio'
 
 runs:
   using: "composite"

@@ -116,6 +116,27 @@ class S3ConfigGenerator(ConfigGenerator):
         file.write(content)
         file.close()
 
+class FtpConfigGenerator(ConfigGenerator):
+    def __init__(self):
+        ConfigGenerator.__init__(self)
+        self.type = 'Ftp'
+
+    def do_generate(self):
+        # create root dir of fs
+        try:
+            os.makedirs(self.root + "/replited")
+        except:
+            pass
+
+        # generate config file
+        file = open(self.cwd + '/tests/config/ftp_template.toml')
+        content = file.read()
+        content = content.replace('{root}', self.root)
+        config_file = self.config_file
+        file = open(config_file, 'w+')
+        file.write(content)
+        file.close()
+
 def start_replicate(p, config_file):
     cmd = p + " --config " + config_file + " replicate &"
     print("replicate cmd: ", cmd)
@@ -158,6 +179,8 @@ def decide_config_generator(config_type):
         return FsConfigGenerator()
     elif config_type == "s3":
         return S3ConfigGenerator()
+    elif config_type == "ftp":
+        return FtpConfigGenerator()
     else:
         print("invalid config type: ", config_type)
         sys.exit(-1)
