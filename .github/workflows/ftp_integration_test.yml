@@ -24,7 +24,7 @@ jobs:
       - name: 'Run integration test for ftp'
         shell: bash
         run: |
-          cargo build --release 
+          cargo build  
           ls 
           pwd
-          python3 tests/integration_test.py 12000 ftp ./target/release/replited
+          python3 tests/integration_test.py 12000 ftp ./target/debug/replited

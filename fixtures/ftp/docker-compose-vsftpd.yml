@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   vsftpd:
-    image: panubo/vsftpd
+    image: fauria/vsftpd
     ports:
       - "2121:21"
       - "20000-22000:20000-22000"
