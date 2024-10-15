@@ -18,7 +18,8 @@ pub fn init_log(log_config: LogConfig) -> Result<()> {
         .filename_prefix("replited")
         .filename_suffix("log")
         .build(log_config.dir)?;
-    let (writer, _guard) = NonBlockingBuilder::default().finish(rolling);
+    let (writer, guard) = NonBlockingBuilder::default().finish(rolling);
+    std::mem::forget(guard);
 
     Logger::new()
         .dispatch(
