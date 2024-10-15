@@ -35,12 +35,6 @@ impl From<log::SetLoggerError> for Error {
     }
 }
 
-impl From<log4rs::config::runtime::ConfigErrors> for Error {
-    fn from(error: log4rs::config::runtime::ConfigErrors) -> Self {
-        Error::InitLoggerError(format!("Init logger config error: {}", error))
-    }
-}
-
 impl From<anyhow::Error> for Error {
     fn from(error: anyhow::Error) -> Self {
         Error::create(

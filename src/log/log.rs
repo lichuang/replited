@@ -1,55 +1,34 @@
 use log::LevelFilter;
-use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
-use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
-use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
-use log4rs::append::rolling_file::RollingFileAppender;
-use log4rs::config::Appender;
-use log4rs::config::Config;
-use log4rs::config::Logger;
-use log4rs::config::Root;
-use log4rs::encode::pattern::PatternEncoder;
-use log4rs::filter::threshold::ThresholdFilter;
+use logforth::append::rolling_file::NonBlockingBuilder;
+use logforth::append::rolling_file::RollingFileWriter;
+use logforth::append::RollingFile;
+use logforth::layout::TextLayout;
+use logforth::Dispatch;
+use logforth::Logger;
 
 use crate::config::LogConfig;
 use crate::error::Result;
 
 pub fn init_log(log_config: LogConfig) -> Result<()> {
     let level: LevelFilter = log_config.level.into();
-    let log_line_pattern = "[{d(%Y-%m-%d %H:%M:%s)} {({l}):5.5}] {m}{n}";
 
-    let log_file = format!("{}/replited.log", log_config.dir);
-    let log_file_pattern = format!("{}/replited_{{}}.log", log_config.dir);
-    let roller_count = 9;
-    let roller_base = 1;
-    let fixed_window_roller = FixedWindowRoller::builder()
-        .base(roller_base)
-        .build(&log_file_pattern, roller_count)?;
+    let rolling = RollingFileWriter::builder()
+        .max_file_size(1024 * 4096) // bytes
+        .max_log_files(9)
+        .filename_prefix("replited")
+        .filename_suffix("log")
+        .build(log_config.dir)?;
+    let (writer, guard) = NonBlockingBuilder::default().finish(rolling);
+    std::mem::forget(guard);
 
-    let size_limit = 1024 * 4096;
-    let size_trigger = SizeTrigger::new(size_limit);
-
-    let compound_policy =
-        CompoundPolicy::new(Box::new(size_trigger), Box::new(fixed_window_roller));
-
-    let file_appender = RollingFileAppender::builder()
-        .encoder(Box::new(PatternEncoder::new(log_line_pattern)))
-        .build(&log_file, Box::new(compound_policy))?;
-
-    let bulder = Config::builder()
-        .appender(
-            Appender::builder()
-                .filter(Box::new(ThresholdFilter::new(level)))
-                .build("logfile", Box::new(file_appender)),
+    Logger::new()
+        .dispatch(
+            Dispatch::new()
+                .filter(level)
+                .layout(TextLayout::default().no_color())
+                .append(RollingFile::new(writer)),
         )
-        .logger(
-            Logger::builder()
-                .appender("logfile")
-                .build("logfile", level),
-        );
-
-    let config = bulder.build(Root::builder().appender("logfile").build(level))?;
-
-    let _ = log4rs::init_config(config)?;
+        .apply()?;
 
     Ok(())
 }
