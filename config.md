@@ -3,9 +3,10 @@
 - [Log config](#log-config)
 - [Database config](#database-config)
 	- [Replicate Config](#replicate-config)
+   		- [Azure blob Params](#azure-blob-params)
+   		- [File System Params](#file-system-params)
+  		- [Ftp Params](#ftp-params) 
  		- [Gcs Params](#gcs-params) 
-		- [File System Params](#file-system-params)
-  		- [Ftp](#ftp-params) 
 		- [S3 Params](#s3-params)
   
   <!-- /MarkdownTOC -->
@@ -40,14 +41,15 @@ See config sample in [sample.toml](./etc/sample.toml)
 | name | replicate backend config name, cannot duplicate |
 | params | params of backend, see below |
 
-#### Gcs Params
+#### Azure blob Params
 | item  |  value    |
 | :---- | ---- |
-| params.type | "Gcs" |
-| params.endpoint | Endpoint of this backend, must be full uri, use "https://storage.googleapis.com" by default. |
-| params.root | Root URI of gcs operations. |
-| params.bucket | Bucket name of this backend. |
-| params.credential | Credentials string for GCS service OAuth2 authentication. |
+| params.type | "Azb" |
+| params.root | root of Azblob service backend. |
+| params.container | container name of Azblob service backend. |
+| params.endpoint | endpoint of Azblob service backend. |
+| params.account_name | account name of Azblob service backend. |
+| params.account_key | account key of Azblob service backend. |
 
 #### File System Params
 | item  |  value    |
@@ -63,6 +65,15 @@ See config sample in [sample.toml](./etc/sample.toml)
 | params.root | root directory of file system backend, use "/" by default. |
 | params.user | user of ftp backend. |
 | params.password | password of ftp backend. |
+
+#### Gcs Params
+| item  |  value    |
+| :---- | ---- |
+| params.type | "Gcs" |
+| params.endpoint | Endpoint of this backend, must be full uri, use "https://storage.googleapis.com" by default. |
+| params.root | Root URI of gcs operations. |
+| params.bucket | Bucket name of this backend. |
+| params.credential | Credentials string for GCS service OAuth2 authentication. |
 
 
 #### S3 Params
