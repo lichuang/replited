@@ -42,6 +42,7 @@ uuid = { version = "1.10.0", features = ["v7"] }
 
 [profile.release]
 lto = true
+codegen-units=1
 
 [[bin]]
 name = "replited"
