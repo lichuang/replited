@@ -1,0 +1,15 @@
+{
+  "recommendations": [
+    "mikestead.dotenv",
+    "usernamehw.errorlens",
+    "dbaeumer.vscode-eslint",
+    "eamodio.gitlens",
+    "mhutchie.git-graph",
+    "donjayamanne.githistory",
+    "lokalise.i18n-ally",
+    "antfu.iconify",
+    "kisstkondoros.vscode-gutter-preview",
+    "antfu.unocss",
+    "vue.volar"
+  ]
+}

@@ -102,6 +102,26 @@ function checkUserAccount() {
         </n-flex>
       </n-space>
     </n-form>
+    <n-divider>
+      <span op-80>{{ $t('login.or') }}</span>
+    </n-divider>
+    <n-space justify="center">
+      <n-button circle>
+        <template #icon>
+          <n-icon><icon-park-outline-wechat /></n-icon>
+        </template>
+      </n-button>
+      <n-button circle>
+        <template #icon>
+          <n-icon><icon-park-outline-tencent-qq /></n-icon>
+        </template>
+      </n-button>
+      <n-button circle>
+        <template #icon>
+          <n-icon><icon-park-outline-github-one /></n-icon>
+        </template>
+      </n-button>
+    </n-space>
   </div>
 </template>
 
