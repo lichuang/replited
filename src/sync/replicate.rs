@@ -10,18 +10,18 @@ use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 
 use super::ShadowWalReader;
+use crate::base::Generation;
 use crate::base::compress_buffer;
 use crate::base::decompressed_data;
-use crate::base::Generation;
 use crate::config::StorageConfig;
 use crate::database::DatabaseInfo;
 use crate::database::DbCommand;
 use crate::database::WalGenerationPos;
 use crate::error::Error;
 use crate::error::Result;
-use crate::sqlite::align_frame;
 use crate::sqlite::WALFrame;
 use crate::sqlite::WALHeader;
+use crate::sqlite::align_frame;
 use crate::storage::SnapshotInfo;
 use crate::storage::StorageClient;
 use crate::storage::WalSegmentInfo;
@@ -317,11 +317,10 @@ impl Replicate {
 
         // Read all WAL files since the last position.
         loop {
-            if let Err(e) = self.sync_wal().await {
-                if e.code() == Error::UNEXPECTED_EOF_ERROR {
+            if let Err(e) = self.sync_wal().await
+                && e.code() == Error::UNEXPECTED_EOF_ERROR {
                     break;
                 }
-            }
         }
         Ok(())
     }

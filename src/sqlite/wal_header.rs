@@ -6,10 +6,10 @@ use super::from_be_bytes_at;
 use crate::base::is_power_of_two;
 use crate::error::Error;
 use crate::error::Result;
-use crate::sqlite::checksum;
 use crate::sqlite::WAL_HEADER_BIG_ENDIAN_MAGIC;
 use crate::sqlite::WAL_HEADER_LITTLE_ENDIAN_MAGIC;
 use crate::sqlite::WAL_HEADER_SIZE;
+use crate::sqlite::checksum;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WALHeader {

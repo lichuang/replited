@@ -1,7 +1,7 @@
 use std::io::Read;
 
-use super::from_be_bytes_at;
 use super::WAL_FRAME_HEADER_SIZE;
+use super::from_be_bytes_at;
 use crate::error::Result;
 
 #[derive(Clone, Debug, PartialEq)]

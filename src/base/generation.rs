@@ -1,9 +1,9 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use uuid::timestamp;
 use uuid::NoContext;
 use uuid::Uuid;
+use uuid::timestamp;
 
 use crate::error::Result;
 

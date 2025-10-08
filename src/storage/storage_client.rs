@@ -8,6 +8,7 @@ use opendal::Metakey;
 use opendal::Operator;
 
 use super::init_operator;
+use crate::base::Generation;
 use crate::base::parent_dir;
 use crate::base::parse_snapshot_path;
 use crate::base::parse_wal_segment_path;
@@ -17,7 +18,6 @@ use crate::base::snapshot_file;
 use crate::base::snapshots_dir;
 use crate::base::walsegment_file;
 use crate::base::walsegments_dir;
-use crate::base::Generation;
 use crate::config::StorageConfig;
 use crate::database::WalGenerationPos;
 use crate::error::Error;
