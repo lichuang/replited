@@ -17,8 +17,8 @@ use log::error;
 use log::info;
 use rusqlite::Connection;
 use rusqlite::DropBehavior;
-use tempfile::tempfile;
 use tempfile::NamedTempFile;
+use tempfile::tempfile;
 use tokio::select;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Receiver;
@@ -26,6 +26,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
+use crate::base::Generation;
 use crate::base::compress_file;
 use crate::base::generation_dir;
 use crate::base::generation_file_path;
@@ -35,18 +36,17 @@ use crate::base::parse_wal_path;
 use crate::base::path_base;
 use crate::base::shadow_wal_dir;
 use crate::base::shadow_wal_file;
-use crate::base::Generation;
 use crate::config::DbConfig;
 use crate::error::Error;
 use crate::error::Result;
+use crate::sqlite::CheckpointMode;
+use crate::sqlite::WAL_FRAME_HEADER_SIZE;
+use crate::sqlite::WAL_HEADER_SIZE;
+use crate::sqlite::WALFrame;
+use crate::sqlite::WALHeader;
 use crate::sqlite::align_frame;
 use crate::sqlite::checksum;
 use crate::sqlite::read_last_checksum;
-use crate::sqlite::CheckpointMode;
-use crate::sqlite::WALFrame;
-use crate::sqlite::WALHeader;
-use crate::sqlite::WAL_FRAME_HEADER_SIZE;
-use crate::sqlite::WAL_HEADER_SIZE;
 use crate::sync::Replicate;
 use crate::sync::ReplicateCommand;
 
@@ -365,12 +365,12 @@ impl Database {
                 new_wal_size, self.config.min_checkpoint_page_number
             );
             return Some(CheckpointMode::Passive);
-        } else if self.config.checkpoint_interval_secs > 0 {
-            if let Some(db_mod_time) = &info.db_mod_time {
+        } else if self.config.checkpoint_interval_secs > 0
+            && let Some(db_mod_time) = &info.db_mod_time {
                 let now = SystemTime::now();
 
-                if let Ok(duration) = now.duration_since(*db_mod_time) {
-                    if duration.as_secs() > self.config.checkpoint_interval_secs
+                if let Ok(duration) = now.duration_since(*db_mod_time)
+                    && duration.as_secs() > self.config.checkpoint_interval_secs
                         && new_wal_size > self.calc_wal_size(1)
                     {
                         debug!(
@@ -379,9 +379,7 @@ impl Database {
                         );
                         return Some(CheckpointMode::Passive);
                     }
-                }
             }
-        }
 
         None
     }
@@ -1121,10 +1119,9 @@ pub async fn run_database(config: DbConfig) -> Result<()> {
     loop {
         select! {
             cmd = db_receiver.recv() => {
-                 if let Some(cmd) = cmd { if let Err(e) = database.handle_db_command(cmd).await {
+                 if let Some(cmd) = cmd && let Err(e) = database.handle_db_command(cmd).await {
                      error!("handle_db_command of db {} error: {:?}", database.config.db, e);
                     }
-                }
             }
             _ = sleep(DEFAULT_MONITOR_INTERVAL) => {
                 if let Err(e) = database.sync().await {

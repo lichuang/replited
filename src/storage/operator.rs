@@ -4,10 +4,10 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use log::warn;
-use opendal::raw::HttpClient;
-use opendal::services;
 use opendal::Builder;
 use opendal::Operator;
+use opendal::raw::HttpClient;
+use opendal::services;
 use reqwest_hickory_resolver::HickoryResolver;
 
 use crate::config::StorageAzblobConfig;
@@ -119,11 +119,10 @@ fn new_storage_http_client() -> Result<HttpClient> {
     builder = builder.connect_timeout(Duration::from_secs(connect_timeout));
 
     // Enable TCP keepalive if set.
-    if let Ok(v) = env::var("_LITESYNC_INTERNAL_TCP_KEEPALIVE") {
-        if let Ok(v) = v.parse::<u64>() {
+    if let Ok(v) = env::var("_LITESYNC_INTERNAL_TCP_KEEPALIVE")
+        && let Ok(v) = v.parse::<u64>() {
             builder = builder.tcp_keepalive(Duration::from_secs(v));
         }
-    }
 
     Ok(HttpClient::build(builder)?)
 }

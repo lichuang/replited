@@ -78,19 +78,6 @@ pub enum LogLevel {
     Trace,
 }
 
-impl From<LogLevel> for log::LevelFilter {
-    fn from(level: LogLevel) -> Self {
-        match &level {
-            LogLevel::Trace => log::LevelFilter::Trace,
-            LogLevel::Debug => log::LevelFilter::Debug,
-            LogLevel::Info => log::LevelFilter::Info,
-            LogLevel::Warn => log::LevelFilter::Warn,
-            LogLevel::Error => log::LevelFilter::Error,
-            LogLevel::Off => log::LevelFilter::Off,
-        }
-    }
-}
-
 impl Default for LogConfig {
     fn default() -> Self {
         Self {
