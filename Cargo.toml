@@ -2,7 +2,8 @@
 name = "replited"
 version = "0.1.0"
 edition = "2024"
-description = ""
+rust-version = "1.88"
+description = "Replicate SQLite Daemon"
 
 [dependencies]
 anyhow = { version = "1.0.65" }
